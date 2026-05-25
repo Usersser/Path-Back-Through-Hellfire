@@ -1,8 +1,8 @@
 // ═══════════════ 业火归途小助手 ═══════════════
 // 酒馆助手中粘贴以下一行即可：
-//   import 'https://cdn.jsdelivr.net/gh/Usersser/Path-Back-Through-Hellfire@v1.1.0/业火归途小助手.js'
+//   import 'https://cdn.jsdelivr.net/gh/Usersser/Path-Back-Through-Hellfire@v1.2.0/业火归途小助手.js'
 // ═══════════════════════════════════════════════════════════
-const EWC_VERSION = '1.1.0';
+const EWC_VERSION = '1.2.0';
 const WORLDBOOK_NAME = '缄默之秋·业火归途 1.2';
 const p = window.parent || window;
 
