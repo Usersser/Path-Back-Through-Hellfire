@@ -132,6 +132,14 @@ function buildEnableSet(sd) {
     if (魅魔契约.异能?.id) enable.add('魅魔契约-异能-' + 魅魔契约.异能.id);
   }
 
+  // ── 片段3.5：地狱模式 ─────────────────────────────────────────────
+  const 地狱模式 = sd?.地狱模式 ?? null;
+  if (地狱模式?.激活) {
+    enable.add('地狱模式-旧设定');
+    enable.add('地狱模式-废案');
+    enable.add('地狱模式-变种感染者');
+  }
+
   // ── 片段4：NPC行为模式 ───────────────────────────────────────────
   if (npcMode === '正常型') {
     enable.add('杂项-NPC动态生成');
@@ -235,6 +243,7 @@ const MANAGED_ENTRIES = new Set([
   '普通爆发期','普通感染者多样性','普通-机制-丧尸尸潮',
   '普通的动态威胁与安逸惩罚','普通感染者遭遇',
   '魅魔契约-审查','魅魔契约-契约诅咒',
+  '地狱模式-旧设定','地狱模式-废案','地狱模式-变种感染者',
   '杂项-NPC动态生成','杂项-末世社交互动法则','恶意的NPC生成','恶意社交法则',
   '华国已定义NPC摘要','美利坚国已定义NPC摘要','日本国已定义NPC摘要',
   '大毛国已定义NPC摘要','法国已定义NPC摘要','巴西已定义NPC摘要','北非已定义NPC摘要',
@@ -378,6 +387,7 @@ async function autoSwitch() {
           感染者: sd?.感染者行为模式,
           NPC模式:sd?.NPC行为模式,
           魅魔:   sd?.魅魔契约?.激活,
+          地狱:   sd?.地狱模式?.激活,
         },
         want: [...enableSet],
         totalChanged: result.totalChanged,
@@ -1570,6 +1580,7 @@ function refreshUI() {
       r.stat.感染者  && `<span class="ewc-tag">${r.stat.感染者}</span>`,
       r.stat.NPC模式 && `<span class="ewc-tag">${r.stat.NPC模式}</span>`,
       r.stat.魅魔    && `<span class="ewc-tag" style="background:rgba(180,100,220,.15);border-color:rgba(180,100,220,.3);color:#c87ce8;">魅魔激活</span>`,
+      r.stat.地狱    && `<span class="ewc-tag" style="background:rgba(220,60,60,.15);border-color:rgba(220,60,60,.3);color:#e05555;">地狱激活</span>`,
     ].filter(Boolean).join('');
   } else {
     statusDot.className = 'ewc-dot err';
