@@ -2,7 +2,7 @@
 // 酒馆助手中粘贴以下一行即可：
 //   
 // ═══════════════════════════════════════════════════════════
-const EWC_VERSION = '2.1.0';
+const EWC_VERSION = '1.1.0';
 const WORLDBOOK_NAME = '缄默之秋·业火归途 1.2';
 const p = window.parent || window;
 
