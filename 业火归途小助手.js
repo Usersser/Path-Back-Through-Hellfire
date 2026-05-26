@@ -1,12 +1,11 @@
 // ═══════════════ 业火归途小助手 ═══════════════
 // 酒馆助手中粘贴以下一行即可：
-//   import 'https://cdn.jsdelivr.net/gh/Usersser/Path-Back-Through-Hellfire@v1.2.0/业火归途小助手.js'
+//   import 'https://cdn.jsdelivr.net/gh/Usersser/Path-Back-Through-Hellfire@v1.2.1/业火归途小助手.js'
 // ═══════════════════════════════════════════════════════════
-const EWC_VERSION = '1.2.0';
-const WORLDBOOK_NAME = '缄默之秋·业火归途 1.2';
+const EWC_VERSION = '1.2.1';
+const WORLDBOOK_NAME = '缄默之秋·业火归途 1.3';
 const p = window.parent || window;
 
-// ─── 清理旧实例 ───────────────────────────────────────────────────────
 {
   const old = ['ewc-bubble', 'ewc-panel', 'ewc-style'];
   for (const id of old) { const el = p.document.getElementById(id); if (el) el.remove(); }
@@ -15,9 +14,6 @@ const p = window.parent || window;
   delete p._ewcLastResult;
 }
 
-// ════════════════════════════════════════════════════════════════════
-//  §1  runInParent — 跨 iframe 执行 TavernHelper，CustomEvent 回传
-// ════════════════════════════════════════════════════════════════════
 function runInParent(code) {
   return new Promise((resolve, reject) => {
     const token = 'ewc_' + Date.now() + '_' + Math.random().toString(36).slice(2);
@@ -34,19 +30,16 @@ function runInParent(code) {
   });
 }
 
-// ════════════════════════════════════════════════════════════════════
-//  §2  stat_data 读取 — 向前扫描最近 30 条消息
-// ════════════════════════════════════════════════════════════════════
 function readStatData() {
   if (typeof p.Mvu === 'undefined') return null;
-  // 向前扫：-1 → -30
+
   for (let i = -1; i >= -30; i--) {
     try {
       const d = p.Mvu.getMvuData({ type: 'message', message_id: i });
       if (d?.stat_data?.衍生状态?.nationality && d?.stat_data?.世界阶段) return d.stat_data;
     } catch (e) { break; }
   }
-  // 兜底：正向扫 0-200
+
   let best = null;
   for (let i = 0; i < 200; i++) {
     try {
@@ -57,9 +50,6 @@ function readStatData() {
   return best;
 }
 
-// ════════════════════════════════════════════════════════════════════
-//  §3  条件矩阵 — 计算应启用的条目集合
-// ════════════════════════════════════════════════════════════════════
 function collectNpcNames(sd) {
   const names = [];
   for (const key of ['NPC', '队友', '敌人', '同伴', '幸存者']) {
@@ -78,7 +68,6 @@ function buildEnableSet(sd) {
   const 魅魔契约      = sd?.魅魔契约 ?? null;
   const npcNames      = sd ? collectNpcNames(sd) : [];
 
-  // ── 片段1：世界阶段 ──────────────────────────────────────────────
   if (phase === '秩序期') {
     for (const e of [
       '世界观-各国政府情况',
@@ -110,7 +99,6 @@ function buildEnableSet(sd) {
     ]) enable.add(e);
   }
 
-  // ── 片段2：感染者行为模式 ─────────────────────────────────────────
   if (infMode === '狂病型') {
     for (const e of ['世界观-COVID-30感染者行为总纲', '[mvu_plot]杂项-合理性审查', '杂项-场景强化(可选)']) enable.add(e);
     if (phase === '爆发期') enable.add('世界观-爆发期');
@@ -125,22 +113,21 @@ function buildEnableSet(sd) {
     if (phase === '末世期') enable.add('普通感染者遭遇');
   }
 
-  // ── 片段3：魅魔契约 ───────────────────────────────────────────────
   if (魅魔契约?.激活) {
     enable.add('魅魔契约-审查');
     enable.add('魅魔契约-契约诅咒');
     if (魅魔契约.异能?.id) enable.add('魅魔契约-异能-' + 魅魔契约.异能.id);
   }
 
-  // ── 片段3.5：地狱模式 ─────────────────────────────────────────────
   const 地狱模式 = sd?.地狱模式 ?? null;
   if (地狱模式?.激活) {
     enable.add('地狱模式-旧设定');
     enable.add('地狱模式-废案');
-    enable.add('地狱模式-变种感染者');
+    if (phase === '末世期') {
+      enable.add('地狱模式-变种感染者');
+    }
   }
 
-  // ── 片段4：NPC行为模式 ───────────────────────────────────────────
   if (npcMode === '正常型') {
     enable.add('杂项-NPC动态生成');
     enable.add('杂项-末世社交互动法则');
@@ -149,7 +136,6 @@ function buildEnableSet(sd) {
     enable.add('恶意社交法则');
   }
 
-  // ── 片段5：国籍×阶段 + NPC条目 ──────────────────────────────────
   const summaryMap = {
     '华国':'华国已定义NPC摘要', '美利坚国':'美利坚国已定义NPC摘要',
     '日本国':'日本国已定义NPC摘要', '大毛国':'大毛国已定义NPC摘要',
@@ -219,9 +205,6 @@ function buildEnableSet(sd) {
   return enable;
 }
 
-// ════════════════════════════════════════════════════════════════════
-//  §4  受控条目白名单
-// ════════════════════════════════════════════════════════════════════
 const MANAGED_ENTRIES = new Set([
   '世界观-各国政府情况',
   '大爆发前/大爆发前夕','大爆发前/规则-异常事件应对','大爆发前/规则-约束',
@@ -275,11 +258,6 @@ function isManagedEntry(name) {
   return MANAGED_PREFIXES.some(pfx => name.startsWith(pfx));
 }
 
-// ════════════════════════════════════════════════════════════════════
-//  §5  applyToWorldbook — 通过 runInParent 调用 TavernHelper
-//       同时设置 enabled 和 strategy.type（这是生效的关键）
-//       仅操作 WORLDBOOK_NAME 指定的单个世界书
-// ════════════════════════════════════════════════════════════════════
 async function applyToWorldbook(enableSet) {
   const enableSetJSON    = JSON.stringify([...enableSet]);
   const managedSetJSON   = JSON.stringify([...MANAGED_ENTRIES]);
@@ -295,7 +273,6 @@ async function applyToWorldbook(enableSet) {
     if (typeof TavernHelper === 'undefined')
       throw new Error('TavernHelper is not defined — 请确认 TavernHelper 扩展已安装并启用');
 
-    /* 仅操作指定的单个世界书，不触碰其他世界书 */
     var wbName = ${JSON.stringify(WORLDBOOK_NAME)};
     var entries;
     try { entries = await TavernHelper.getWorldbook(wbName); } catch(e) {
@@ -317,10 +294,8 @@ async function applyToWorldbook(enableSet) {
       var should = enableSet.has(entryName);
       var dirty  = false;
 
-      /* ① enabled 标志 */
       if (e.enabled !== should) { e.enabled = should; dirty = true; }
 
-      /* ② strategy.type — 这是实际触发注入的关键 */
       if (!e.strategy || typeof e.strategy !== 'object') {
         e.strategy = { type: 'normal', keys: [], keys_secondary: { logic: 'and_any', keys: [] }, scan_depth: 'same_as_global' };
       }
@@ -345,16 +320,13 @@ async function applyToWorldbook(enableSet) {
   })()`);
 }
 
-// ════════════════════════════════════════════════════════════════════
-//  §6  主入口 autoSwitch
-// ════════════════════════════════════════════════════════════════════
-let _runningPromise = null;   // 运行锁：防止并发执行
-let _pendingSwitch  = false;  // 是否有等待中的刷新请求
+let _runningPromise = null;
+let _pendingSwitch  = false;
 let _debounceTimer  = null;
 
 async function autoSwitch() {
   if (_runningPromise) {
-    // 已有在执行中的 autoSwitch，标记需要再跑一次，让当前执行者兜底
+
     _pendingSwitch = true;
     return _runningPromise;
   }
@@ -402,8 +374,7 @@ async function autoSwitch() {
 
   try { await _runningPromise; } finally {
     _runningPromise = null;
-    // 如果在执行期间有新的刷新请求，延迟再跑一次
-    // 延迟是为了打断世界书修改触发的事件回环
+
     if (_pendingSwitch) {
       _pendingSwitch = false;
       setTimeout(() => autoSwitch(), 100);
@@ -411,24 +382,16 @@ async function autoSwitch() {
   }
 }
 
-// 关键事件处理：直接执行，不防抖，返回 Promise 让事件系统 await
 function onCriticalEvent() {
   clearTimeout(_debounceTimer);
   return autoSwitch();
 }
 
-// 次要事件处理：防抖兜底（避免 AI 回复过程中频繁触发）
 function onSecondaryEvent() {
   clearTimeout(_debounceTimer);
   _debounceTimer = setTimeout(autoSwitch, 200);
 }
 
-// ════════════════════════════════════════════════════════════════════
-//  §7  事件注册 — 分两档：关键事件直接执行，次要事件防抖兜底
-// ════════════════════════════════════════════════════════════════════
-// generate_before_combine_prompts 是 AI 组装提示词前的最后一道关口，
-// 必须同步（返回 Promise）让 ST 事件系统有机会 await，否则首条消息
-// AI 拿到的世界书条目仍是启动时全禁用状态。
 const CRITICAL_EVENTS = [
   'message_sent',               'MESSAGE_SENT',
   'generate_before_combine_prompts', 'GENERATE_BEFORE_COMBINE_PROMPTS',
@@ -459,29 +422,38 @@ if (typeof eventOn === 'function') {
   console.warn('[EWC] eventOn 不可用，将仅支持手动触发');
 }
 
-// ════════════════════════════════════════════════════════════════════
-//  §8  辅助函数 — 提示词模板 & MVU 插件配置
-//      这些函数仅操作 SillyTavern.extensionSettings，与世界书控制完全隔离
-// ════════════════════════════════════════════════════════════════════
+function ewcShowToast(msg, duration) {
+  if (duration === undefined) duration = 2400;
+  var animDelay = Math.max(0, duration - 300);
 
-// ── Toast ─────────────────────────────────────────────────────────
-function ewcShowToast(msg) {
+  let container = p.document.getElementById('ewc-toast-container');
+  if (!container) {
+    container = p.document.createElement('div');
+    container.id = 'ewc-toast-container';
+    container.style.cssText = [
+      'position:fixed;top:20px;left:50%;transform:translateX(-50%);',
+      'z-index:1000010;display:flex;flex-direction:column;gap:6px;',
+      'align-items:center;pointer-events:none;',
+    ].join('');
+    p.document.body.appendChild(container);
+  }
   const t = p.document.createElement('div');
-  t.id = 'ewc-toast';
-  t.style.cssText = `
-    position:fixed;top:20px;left:50%;transform:translateX(-50%);
-    background:rgba(10,15,25,0.97);border:1px solid rgba(74,144,226,0.4);
-    border-radius:8px;padding:9px 22px;color:#87cefa;font-size:13px;font-weight:600;
-    z-index:1000010;box-shadow:0 4px 20px rgba(0,0,0,0.5);pointer-events:none;
-    font-family:'Noto Serif SC','Inter','Microsoft YaHei',sans-serif;
-    animation:ewc-toast-in .25s ease,ewc-toast-out .25s ease 2.1s forwards;
-  `;
+  t.className = 'ewc-toast-item';
+  t.style.cssText = [
+    'background:rgba(10,15,25,0.97);border:1px solid rgba(74,144,226,0.4);',
+    'border-radius:8px;padding:9px 22px;color:#87cefa;font-size:13px;font-weight:600;',
+    'box-shadow:0 4px 20px rgba(0,0,0,0.5);pointer-events:none;white-space:nowrap;',
+    "font-family:'Noto Serif SC','Inter','Microsoft YaHei',sans-serif;",
+    'animation:ewc-toast-in .25s ease,ewc-toast-out .25s ease ' + (animDelay / 1000) + 's forwards;',
+  ].join('');
   t.textContent = msg;
-  p.document.body.appendChild(t);
-  setTimeout(() => t.remove(), 2400);
+  container.appendChild(t);
+  setTimeout(() => {
+    t.remove();
+    if (!container.hasChildNodes()) container.remove();
+  }, duration);
 }
 
-// ── SillyTavern 辅助 ───────────────────────────────────────────────
 function ewcGetMvuCfg() {
   return (typeof SillyTavern !== 'undefined') ? SillyTavern.extensionSettings?.mvu_settings : null;
 }
@@ -490,7 +462,6 @@ function ewcSaveSettings() {
   const ST = (typeof SillyTavern !== 'undefined') ? SillyTavern : null;
   const pST = p.SillyTavern || null;
 
-  // ① 优先使用非防抖的即时保存（确保在 reload 前完成持久化）
   const immediate = (ST && typeof ST.saveSettings === 'function' && ST.saveSettings) ||
                     (pST && typeof pST.saveSettings === 'function' && pST.saveSettings) ||
                     (typeof p.saveSettings === 'function' ? p.saveSettings : null);
@@ -499,7 +470,6 @@ function ewcSaveSettings() {
     return r instanceof Promise ? r : Promise.resolve(r);
   }
 
-  // ② 退而求其次：debounced 版本，先 flush 再调用
   const debounced = (ST && typeof ST.saveSettingsDebounced === 'function' && ST.saveSettingsDebounced) ||
                     (pST && typeof pST.saveSettingsDebounced === 'function' && pST.saveSettingsDebounced) ||
                     (typeof p.saveSettingsDebounced === 'function' ? p.saveSettingsDebounced : null);
@@ -512,7 +482,6 @@ function ewcSaveSettings() {
   throw new Error('saveSettings 不可用');
 }
 
-// ── 提示词模板（EJS）─────────────────────────────────────────────
 const EWC_EJS_OPTIMAL = {
   enabled: true, generate_enabled: true, generate_loader_enabled: true,
   render_enabled: true, render_loader_enabled: true, with_context_disabled: false,
@@ -556,7 +525,6 @@ function ewcApplyOptimalEjs(statusEl) {
   } catch (e) { ewcShowToast('配置失败: ' + e.message); }
 }
 
-// ── MVU 插件配置 ───────────────────────────────────────────────────
 function ewcGetMvuFormRefs() {
   const g = id => p.document.getElementById(id);
   return {
@@ -593,6 +561,8 @@ function ewcGetMvuFormRefs() {
     manualPanel:   g('ewc-mvu-manual-panel'),
     applyBtn:      g('ewc-mvu-apply'),
     status:        g('ewc-mvu-status'),
+    presetRow:     g('ewc-mvu-preset-row'),
+    presetName:    g('ewc-mvu-preset-name'),
   };
 }
 
@@ -616,6 +586,13 @@ function ewcSyncMvuToForm() {
 
   const em = cfg.额外模型解析配置 || {};
   fr.jailbreak.value = em.破限方案 || '使用内置破限';
+  if (fr.presetRow) fr.presetRow.style.display = (em.破限方案 === '使用其他预设') ? '' : 'none';
+  if (em.破限方案 === '使用其他预设' && fr.presetName) {
+
+    const _savedPreset = em.预设名称 ||
+      (typeof SillyTavern !== 'undefined' && SillyTavern.extensionSettings?._ewcYH?.presetName) || '';
+    ewcPopulatePresets(fr, _savedPreset);
+  }
   fr.respFormat.value = em.应答格式 || '聊天消息';
   fr.reqMode.value = em.请求方式 || '依次请求，失败后重试';
   fr.reqCount.value = em.请求次数 || 1;
@@ -656,6 +633,20 @@ function ewcWriteMvuConfig() {
   const em = cfg.额外模型解析配置;
   em.模型来源 = fr.modelSource.value;
   em.破限方案 = fr.jailbreak.value;
+  if (fr.jailbreak.value === '使用其他预设' && fr.presetName) {
+    em.预设名称 = fr.presetName.value;
+
+    if (typeof SillyTavern !== 'undefined') {
+      SillyTavern.extensionSettings._ewcYH = SillyTavern.extensionSettings._ewcYH || {};
+      SillyTavern.extensionSettings._ewcYH.presetName = fr.presetName.value;
+    }
+  } else {
+    delete em.预设名称;
+
+    if (typeof SillyTavern !== 'undefined' && SillyTavern.extensionSettings._ewcYH) {
+      delete SillyTavern.extensionSettings._ewcYH.presetName;
+    }
+  }
   em.应答格式 = fr.respFormat.value;
   em.请求方式 = fr.reqMode.value;
   em.请求次数 = parseInt(fr.reqCount.value) || 1;
@@ -785,8 +776,142 @@ async function ewcFetchModels() {
   }
 }
 
-// ── 配置检测：检查模型名称 ───────────────────
+let _ewcPresetCache = null;
+
+async function ewcLoadPresetList() {
+  if (_ewcPresetCache) return _ewcPresetCache;
+  try {
+    const result = await runInParent(`(async () => {
+
+      const primary = document.querySelector('#settings_preset_openai');
+      if (primary && primary.options && primary.options.length > 0) {
+        const names = [...primary.options]
+          .map(o => (o.textContent || '').trim())
+          .filter(v => v);
+        if (names.length) return names;
+      }
+
+      const byAttr = document.querySelector('select[data-preset-manager-for="openai"]');
+      if (byAttr && byAttr.options && byAttr.options.length > 0) {
+        const names = [...byAttr.options]
+          .map(o => (o.textContent || '').trim())
+          .filter(v => v);
+        if (names.length) return names;
+      }
+
+      const tgwui = document.querySelector('#settings_preset_textgenerationwebui');
+      if (tgwui && tgwui.options && tgwui.options.length > 0) {
+        const names = [...tgwui.options]
+          .map(o => (o.textContent || '').trim())
+          .filter(v => v);
+        if (names.length) return names;
+      }
+
+      return [];
+    })()`);
+
+    if (Array.isArray(result) && result.length) {
+      _ewcPresetCache = result;
+      return result;
+    }
+  } catch(e) {
+  }
+  return [];
+}
+
+async function ewcPopulatePresets(fr, selectedValue) {
+  if (!fr || !fr.presetName) return;
+  fr.presetName.innerHTML = '<option value="">– 加载中… –</option>';
+  try {
+    const list = await ewcLoadPresetList();
+    if (!list || !list.length) {
+      fr.presetName.innerHTML = '<option value="">– 未找到预设（请确认已启用额外模型解析）–</option>';
+      return;
+    }
+    fr.presetName.innerHTML = list
+      .map(name => `<option value="${name.replace(/"/g,'&quot;')}">${name}</option>`)
+      .join('');
+
+    if (selectedValue && [...fr.presetName.options].some(o => o.value === selectedValue)) {
+      fr.presetName.value = selectedValue;
+    }
+  } catch(e) {
+    fr.presetName.innerHTML = '<option value="">– 加载失败 –</option>';
+  }
+}
+
+async function ewcSyncMvuNativePreset(presetName) {
+  if (!presetName) return;
+  try {
+    const result = await runInParent(`(async () => {
+      const target = ${JSON.stringify(presetName)};
+
+      function findSelectNear(labelText) {
+        for (const el of document.querySelectorAll('label, span, div, td, th')) {
+          if (el.textContent.trim() !== labelText) continue;
+
+          let sib = el.nextElementSibling;
+          while (sib) {
+            if (sib.tagName === 'SELECT') return sib;
+            const s = sib.querySelector('select');
+            if (s) return s;
+            sib = sib.nextElementSibling;
+          }
+
+          const parent = el.closest('div,section,form,tr');
+          if (parent) {
+            const s = parent.querySelector('select');
+            if (s) return s;
+          }
+        }
+        return null;
+      }
+
+      const CANDIDATE_SELECTORS = [
+        '#mvu_target_preset',
+        '#mvu-target-preset',
+        'select[data-mvu="target_preset"]',
+        'select[name="mvu_target_preset"]',
+        '.mvu_preset_select',
+        '.mvu-preset-select',
+      ];
+
+      function findSelectByOption(value) {
+        for (const sel of document.querySelectorAll('select')) {
+          if ([...sel.options].some(o => o.value === value || o.textContent.trim() === value)) {
+
+            if (!sel.closest('#ewc-panel')) return sel;
+          }
+        }
+        return null;
+      }
+
+      let sel = findSelectNear('目标预设');
+      if (!sel) {
+        for (const s of CANDIDATE_SELECTORS) {
+          sel = document.querySelector(s);
+          if (sel) break;
+        }
+      }
+      if (!sel) sel = findSelectByOption(target);
+
+      if (!sel) return { ok: false, reason: '未找到目标预设 select 元素' };
+
+      const opt = [...sel.options].find(o => o.value === target || o.textContent.trim() === target);
+      if (!opt) return { ok: false, reason: '下拉中不含选项: ' + target, options: [...sel.options].map(o=>o.textContent.trim()) };
+
+      sel.value = opt.value;
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+      return { ok: true, selected: opt.value };
+    })()`);
+
+  } catch(e) {
+  }
+}
+
 const CONFIG_BLACKLIST = ['次','血','特','惠','福','利','鹿','量','plus','Plus','PLUS','转','官','0'];
+
+const CONFIG_URL_WHITELIST = ['ark.cn', 'siliconflow', 'openrouter'];
 
 function ewcCheckModelConfig() {
   try {
@@ -800,21 +925,35 @@ function ewcCheckModelConfig() {
     }
     const configStatus = p.document.getElementById('ewc-config-status');
     if (!configStatus) return false;
+
+    const apiUrl = ewcGetMainApiUrl().toLowerCase();
+    if (CONFIG_URL_WHITELIST.some(d => apiUrl.includes(d))) {
+      configStatus.textContent = '配置运行正常';
+      configStatus.classList.remove('warn');
+      ewcUpdateBackendCode(false);
+      return false;
+    }
+
     if (!model) {
       configStatus.textContent = '无法获取当前模型名';
       configStatus.classList.add('warn');
-      ewcUpdateBackendCode();
+      ewcUpdateBackendCode(true);
       return false;
     }
     const hit = CONFIG_BLACKLIST.some(kw => model.includes(kw));
     if (hit) {
-      configStatus.textContent = '配置异常，请前往卡区询问原因';
+      configStatus.textContent = 'MUV解析异常，请复制报错码并前往卡区询问原因';
       configStatus.classList.add('warn');
+
+      if (!p._ewcConfigWarnedOnce) {
+        p._ewcConfigWarnedOnce = true;
+        ewcShowToast('⚠ MUV解析异常，请在小助手复制报错码并前往卡区询问原因', 5000);
+      }
     } else {
       configStatus.textContent = '配置运行正常';
       configStatus.classList.remove('warn');
     }
-    ewcUpdateBackendCode();
+    ewcUpdateBackendCode(hit);
     return hit;
   } catch (e) {
     console.warn('[EWC] 无法获取模型名:', e.message);
@@ -843,7 +982,6 @@ function ewcInferModelFromSettings(settings) {
   return '';
 }
 
-// ── 后台配置码 ─────────────────────────
 const _EWC_DES_KEY = 'ZODMVUKY';
 const _DES_IP = [58,50,42,34,26,18,10,2,60,52,44,36,28,20,12,4,62,54,46,38,30,22,14,6,64,56,48,40,32,24,16,8,57,49,41,33,25,17,9,1,59,51,43,35,27,19,11,3,61,53,45,37,29,21,13,5,63,55,47,39,31,23,15,7];
 const _DES_FP = [40,8,48,16,56,24,64,32,39,7,47,15,55,23,63,31,38,6,46,14,54,22,62,30,37,5,45,13,53,21,61,29,36,4,44,12,52,20,60,28,35,3,43,11,51,19,59,27,34,2,42,10,50,18,58,26,33,1,41,9,49,17,57,25];
@@ -990,27 +1128,36 @@ function ewcFallbackCopy(text) {
   p.document.body.removeChild(ta);
 }
 
-function ewcUpdateBackendCode() {
+function ewcUpdateBackendCode(isError) {
+  const el = p.document.getElementById('ewc-backend-code');
+  if (!el) return;
+
+  if (!isError) {
+    el.innerHTML = '';
+    el.style.display = 'none';
+    return;
+  }
+
+  el.style.display = '';
   try {
     const ST = (typeof SillyTavern !== 'undefined') ? SillyTavern : null;
     const model = (ST && typeof ST.getChatCompletionModel === 'function') ? (ST.getChatCompletionModel() || '') : '';
     const apiUrl = ewcGetMainApiUrl();
-    const payload = apiUrl ? (model + '|' + apiUrl) : model;
-    const el = p.document.getElementById('ewc-backend-code');
-    if (!el) return;
+    const localHref = (p && p.location && p.location.href) || '';
+    const payload = (model ? model : '') + (apiUrl ? '|' + apiUrl : '') + (localHref ? '|' + localHref : '');
     if (!payload) { el.innerHTML = ''; return; }
     const encrypted = ewcEncryptPayload(payload);
 
     el.innerHTML = '';
 
     const label = p.document.createElement('span');
-    label.style.cssText = 'font-size:10px;color:rgba(143,164,188,0.4);';
-    label.textContent = '后台配置码 ';
+    label.style.cssText = 'font-size:10px;color:rgba(224,85,85,0.6);font-weight:600;';
+    label.textContent = '报错提示码 ';
     el.appendChild(label);
 
     const code = p.document.createElement('code');
     code.title = '点击复制';
-    code.style.cssText = 'font-size:10px;font-family:Consolas,Monaco,monospace;background:#080b12;color:rgba(143,164,188,0.5);padding:2px 7px;border-radius:4px;border:1px solid rgba(255,255,255,0.06);white-space:nowrap;max-width:200px;display:inline-block;overflow:hidden;text-overflow:ellipsis;vertical-align:middle;cursor:pointer;';
+    code.style.cssText = 'font-size:10px;font-family:Consolas,Monaco,monospace;background:#080b12;color:rgba(224,85,85,0.7);padding:2px 7px;border-radius:4px;border:1px solid rgba(224,85,85,0.2);white-space:nowrap;max-width:200px;display:inline-block;overflow:hidden;text-overflow:ellipsis;vertical-align:middle;cursor:pointer;';
     code.textContent = encrypted;
     code.addEventListener('click', () => {
       ewcCopyToClipboard(encrypted);
@@ -1021,7 +1168,7 @@ function ewcUpdateBackendCode() {
 
     const btn = p.document.createElement('button');
     btn.className = 'ewc-btn xs';
-    btn.style.verticalAlign = 'middle';
+    btn.style.cssText = 'vertical-align:middle;border-color:rgba(224,85,85,0.3);color:rgba(224,85,85,0.8);';
     btn.textContent = '复制';
     btn.addEventListener('click', () => {
       ewcCopyToClipboard(encrypted);
@@ -1030,18 +1177,10 @@ function ewcUpdateBackendCode() {
     });
     el.appendChild(btn);
   } catch (e) {
-    const el = p.document.getElementById('ewc-backend-code');
-    if (el) el.innerHTML = '';
+    el.innerHTML = '';
   }
 }
 
-
-
-
-
-// ════════════════════════════════════════════════════════════════════
-//  §9  UI — 悬浮气泡 + 多功能面板
-// ════════════════════════════════════════════════════════════════════
 const CSS = p.document.createElement('style');
 CSS.id = 'ewc-style';
 CSS.textContent = `
@@ -1058,7 +1197,6 @@ CSS.textContent = `
     50%    {border-color:rgba(214,69,65,0.7); box-shadow:0 0 12px 2px rgba(214,69,65,0.15)}
   }
 
-  /* ── 气泡 ─────────────────────────────────────────────────────── */
   #ewc-bubble {
     position:fixed; top:12vh; left:14px;
     width:44px; height:44px;
@@ -1079,7 +1217,6 @@ CSS.textContent = `
   }
   #ewc-bubble.running { animation:ewc-spin 1.2s linear infinite; }
 
-  /* ── 面板容器 ───────────────────────────────────────────────── */
   #ewc-panel {
     position:fixed; z-index:999999;
     width:340px; max-width:93vw; max-height:78vh;
@@ -1090,19 +1227,18 @@ CSS.textContent = `
     font-family:'Noto Serif SC','Microsoft YaHei',sans-serif;
     font-size:12px; color:#b8c8dc; display:none;
   }
-  /* 顶部金边线 */
+
   #ewc-panel::before {
     content:''; position:absolute; top:0; left:0; right:0; height:1px; z-index:2;
     background:linear-gradient(90deg,transparent 0%,rgba(212,175,55,0.6) 30%,rgba(212,175,55,0.9) 50%,rgba(212,175,55,0.6) 70%,transparent 100%);
   }
-  /* 噪点纹理叠层 */
+
   #ewc-panel::after {
     content:''; position:absolute; inset:0; z-index:0; pointer-events:none;
     background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
     opacity:0.5;
   }
 
-  /* ── 顶栏 ───────────────────────────────────────────────────── */
   #ewc-drag-handle {
     position:relative; z-index:1;
     padding:13px 16px 11px;
@@ -1134,7 +1270,6 @@ CSS.textContent = `
     font-weight:400; text-transform:uppercase;
   }
 
-  /* ── 可滚动主体 ─────────────────────────────────────────────── */
   #ewc-body {
     position:relative; z-index:1;
     overflow-y:auto; flex:1;
@@ -1145,7 +1280,6 @@ CSS.textContent = `
   #ewc-body::-webkit-scrollbar-track { background:transparent; }
   #ewc-body::-webkit-scrollbar-thumb { background:rgba(212,175,55,0.2); border-radius:2px; }
 
-  /* ── 配置状态横幅 ───────────────────────────────────────────── */
   #ewc-config-status {
     margin-bottom:11px; padding:9px 14px;
     border-radius:10px; font-size:12px; font-weight:600;
@@ -1164,7 +1298,6 @@ CSS.textContent = `
   }
   #ewc-config-status.warn::before { color:#e05555; animation:ewc-pulse 1s ease-in-out infinite; }
 
-  /* ── 后台配置码 ─────────────────────────────────────────────── */
   #ewc-backend-code {
     text-align:center; margin-bottom:11px;
     font-size:10px; color:rgba(143,164,188,0.3); line-height:1.6; word-break:break-all;
@@ -1179,7 +1312,6 @@ CSS.textContent = `
     text-overflow:ellipsis; vertical-align:middle; cursor:pointer;
   }
 
-  /* ── 通用区块 ───────────────────────────────────────────────── */
   .ewc-section {
     border:1px solid rgba(255,255,255,0.06);
     border-radius:10px; padding:12px 13px; margin-bottom:10px;
@@ -1200,7 +1332,6 @@ CSS.textContent = `
     background:linear-gradient(90deg,rgba(212,175,55,0.15),transparent);
   }
 
-  /* ── 按钮系统 ───────────────────────────────────────────────── */
   .ewc-btn {
     padding:7px 12px; border-radius:8px;
     border:1px solid rgba(255,255,255,0.1);
@@ -1222,7 +1353,6 @@ CSS.textContent = `
   }
   .ewc-btn.sm:hover { background:rgba(255,255,255,0.06); color:#c0d8f0; }
 
-  /* 金色主按钮 */
   .ewc-btn.primary {
     width:100%; display:block;
     background:linear-gradient(135deg,rgba(212,175,55,0.18) 0%,rgba(212,175,55,0.08) 100%);
@@ -1241,7 +1371,6 @@ CSS.textContent = `
   }
   .ewc-btn.primary:disabled { opacity:.3; cursor:not-allowed; transform:none; }
 
-  /* 蓝色辅助按钮 */
   .ewc-btn.blue-primary {
     width:100%; display:block; margin-top:6px;
     background:rgba(74,144,226,0.1);
@@ -1254,7 +1383,6 @@ CSS.textContent = `
     color:#b8d8f4; transform:translateY(-1px);
   }
 
-  /* 细小按钮 */
   .ewc-btn.xs {
     padding:4px 10px; font-size:10.5px; flex:0 0 auto;
     background:transparent; border:1px solid rgba(74,144,226,0.2);
@@ -1265,13 +1393,11 @@ CSS.textContent = `
     background:rgba(74,144,226,0.08);
   }
 
-  /* ── EJS 状态文本 ───────────────────────────────────────────── */
   #ewc-ejs-status {
     font-size:11px; color:rgba(143,164,188,0.7); margin-top:8px;
     text-align:center; line-height:1.7; padding:5px 0;
   }
 
-  /* ── MVU 区块 ───────────────────────────────────────────────── */
   #ewc-mvu-status {
     font-size:11px; color:rgba(143,164,188,0.7); margin-top:8px;
     text-align:center; line-height:1.8;
@@ -1328,7 +1454,6 @@ CSS.textContent = `
   .ewc-mvu-hint { font-size:10px; color:rgba(143,164,188,0.4); line-height:1.5; margin-top:3px; }
   .ewc-mvu-grid2 { display:grid; grid-template-columns:1fr 1fr; gap:3px 8px; }
 
-  /* ── 世界书状态指示器 ──────────────────────────────────────── */
   .ewc-row { display:flex; align-items:center; gap:8px; font-size:11px; }
   .ewc-dot { width:9px; height:9px; border-radius:50%; flex-shrink:0; }
   .ewc-dot.ok  { background:#4ade80; box-shadow:0 0 8px rgba(74,222,128,0.5); }
@@ -1342,10 +1467,8 @@ CSS.textContent = `
   .ewc-tag.err { background:rgba(224,85,85,0.08); border-color:rgba(224,85,85,0.25); color:#e05555; }
   #ewc-status-text { color:#4ade80; font-size:11px; }
 
-  /* ── 分隔线 ─────────────────────────────────────────────────── */
   .ewc-sep { height:1px; background:rgba(255,255,255,0.05); margin:7px 0; }
 
-  /* ── 页脚 ───────────────────────────────────────────────────── */
   #ewc-footer {
     position:relative; z-index:1;
     text-align:center; padding:10px 14px 13px;
@@ -1360,7 +1483,6 @@ CSS.textContent = `
   #ewc-footer .f2 { font-size:10px; color:rgba(255,255,255,0.18); }
   #ewc-footer .f3 { font-size:9px; color:rgba(255,255,255,0.1); margin-top:1px; letter-spacing:1px; }
 
-  /* ── 移动端适配 ─────────────────────────────────────────────── */
   @media (max-width:768px) {
     #ewc-panel { width:clamp(280px,92vw,340px); max-height:72vh; }
     #ewc-bubble { width:40px; height:40px; font-size:18px; }
@@ -1372,14 +1494,12 @@ CSS.textContent = `
 `;
 p.document.head.appendChild(CSS);
 
-// ── 气泡 DOM ──────────────────────────────────────────────────────
 const bubble = p.document.createElement('button');
 bubble.id = 'ewc-bubble';
-bubble.title = '业火归途 控制器 v' + EWC_VERSION;
+bubble.title = '业火归途 小助手 v' + EWC_VERSION;
 bubble.textContent = '🧬';
 p.document.body.appendChild(bubble);
 
-// ── 面板 DOM ──────────────────────────────────────────────────────
 const panel = p.document.createElement('div');
 panel.id = 'ewc-panel';
 panel.innerHTML = `
@@ -1470,14 +1590,21 @@ panel.innerHTML = `
             <select class="ewc-mvu-select" id="ewc-mvu-jailbreak">
               <option value="使用内置破限">使用内置破限</option>
               <option value="使用当前预设">使用当前预设</option>
+              <option value="使用其他预设">使用其他预设</option>
+            </select>
+          </div>
+          <div class="ewc-mvu-row" id="ewc-mvu-preset-row" style="display:none;">
+            <label class="ewc-mvu-label">选择预设</label>
+            <select class="ewc-mvu-select" id="ewc-mvu-preset-name">
+              <option value="">– 加载中… –</option>
             </select>
           </div>
           <div class="ewc-mvu-row">
             <label class="ewc-mvu-label">应答格式</label>
             <select class="ewc-mvu-select" id="ewc-mvu-resp-format">
               <option value="聊天消息">聊天消息</option>
-              <option value="JSON格式">JSON格式</option>
-              <option value="纯文本">纯文本</option>
+              <option value="工具调用">工具调用</option>
+              <option value="格式化输出">格式化输出</option>
             </select>
           </div>
           <div class="ewc-mvu-row">
@@ -1541,7 +1668,7 @@ panel.innerHTML = `
         <div class="ewc-mvu-subtitle">兼容性</div>
         <div id="ewc-mvu-compat"></div>
 
-        <button class="ewc-btn blue-primary" id="ewc-mvu-apply">应用配置（刷新页面）</button>
+        <button class="ewc-btn blue-primary" id="ewc-mvu-apply" style="margin-top:4px;">应用配置（刷新页面）</button>
       </div><!-- /manual-panel -->
 
       <div id="ewc-mvu-status">读取中…</div>
@@ -1556,15 +1683,13 @@ panel.innerHTML = `
   </div>
 `;
 p.document.body.appendChild(panel);
-panel.style.display = 'none'; // 确保内联样式与 CSS 一致，避免首次点击无效
+panel.style.display = 'none';
 
-// ── DOM 引用 ──────────────────────────────────────────────────────
 const statusDot  = p.document.getElementById('ewc-status-dot');
 const statusText = p.document.getElementById('ewc-status-text');
 const statTags   = p.document.getElementById('ewc-stat-tags');
 const ejsStatus  = p.document.getElementById('ewc-ejs-status');
 
-// ── 世界书状态刷新 ──────────────────────────────────────────────
 function refreshUI() {
   const r = p._ewcLastResult;
   if (!r) return;
@@ -1590,7 +1715,6 @@ function refreshUI() {
   }
 }
 
-// ── 面板开合（根据视口智能定位） ─────────────────────────────────
 function openPanel() {
   const pw = p.innerWidth || window.innerWidth;
   const ph = p.innerHeight || window.innerHeight;
@@ -1620,12 +1744,10 @@ panel.addEventListener('mouseenter', () => { ewcCheckModelConfig(); ewcCheckEjs(
 
 p.document.addEventListener('ewc-done', () => { bubble.classList.remove('running'); refreshUI(); });
 
-// ── EJS 按钮 ─────────────────────────────────────────────────────
 p.document.getElementById('ewc-ejs-optimize').addEventListener('click', () => {
   ewcApplyOptimalEjs(ejsStatus);
 });
 
-// ── MVU 手风琴 ───────────────────────────────────────────────────
 p.document.getElementById('ewc-mvu-manual-toggle').addEventListener('click', () => {
   const mp = p.document.getElementById('ewc-mvu-manual-panel');
   const ar = p.document.getElementById('ewc-mvu-manual-arrow');
@@ -1642,11 +1764,16 @@ p.document.getElementById('ewc-mvu-adv-toggle').addEventListener('click', () => 
   ar.classList.toggle('open', !open);
 });
 
-// ── MVU 表单字段事件 ─────────────────────────────────────────────
 const _ewcMvuBindings = [
   ['ewc-mvu-update-mode',   'change',  () => { const fr=ewcGetMvuFormRefs(); fr.extraPanel.style.display=fr.updateMode.value==='额外模型解析'?'':'none'; ewcRefreshModelSourceVisibility(fr); ewcOnMvuFieldChange(); }],
   ['ewc-mvu-model-source',  'change',  () => { ewcRefreshModelSourceVisibility(); ewcOnMvuFieldChange(); }],
-  ['ewc-mvu-jailbreak',     'change',  () => { ewcOnMvuFieldChange(); }],
+  ['ewc-mvu-jailbreak',     'change',  () => {
+    const fr = ewcGetMvuFormRefs();
+    const isOther = fr.jailbreak?.value === '使用其他预设';
+    if (fr.presetRow) fr.presetRow.style.display = isOther ? '' : 'none';
+    if (isOther && fr.presetName) ewcPopulatePresets(fr, fr.presetName.value || '');
+    ewcOnMvuFieldChange();
+  }],
   ['ewc-mvu-resp-format',   'change',  ewcOnMvuFieldChange],
   ['ewc-mvu-req-mode',      'change',  ewcOnMvuFieldChange],
   ['ewc-mvu-req-count',     'input',   ewcOnMvuFieldChange],
@@ -1665,6 +1792,7 @@ const _ewcMvuBindings = [
   ['ewc-mvu-clean-recent',  'input',   ewcOnMvuFieldChange],
   ['ewc-mvu-clean-trigger', 'input',   ewcOnMvuFieldChange],
   ['ewc-mvu-fetch-models',  'click',   ewcFetchModels],
+  ['ewc-mvu-preset-name',   'change',  () => { ewcOnMvuFieldChange(); const fr=ewcGetMvuFormRefs(); if(fr.presetName?.value) ewcSyncMvuNativePreset(fr.presetName.value); }],
 ];
 for (const [id, evt, fn] of _ewcMvuBindings) {
   const el = p.document.getElementById(id);
@@ -1674,18 +1802,17 @@ p.document.getElementById('ewc-mvu-compat')?.addEventListener('change', e => {
   if (e.target.classList.contains('ewc-mvu-compat-check')) ewcOnMvuFieldChange();
 });
 
-// ── MVU 一键最优（先检查 API 字段，如为空展开手动面板提示） ───────
 p.document.getElementById('ewc-mvu-optimize').addEventListener('click', () => {
   const fr = ewcGetMvuFormRefs();
   const apiEmpty = !(fr.apiUrl?.value?.trim());
   if (apiEmpty) {
-    // 展开手动配置面板，让用户先填 API
+
     const mp = p.document.getElementById('ewc-mvu-manual-panel');
     const ar = p.document.getElementById('ewc-mvu-manual-arrow');
     mp.style.display = '';
     ar.classList.add('open');
     ewcSyncMvuToForm();
-    // 确保额外模型解析区展开
+
     const fr2 = ewcGetMvuFormRefs();
     if (fr2.updateMode) fr2.updateMode.value = '额外模型解析';
     if (fr2.extraPanel) fr2.extraPanel.style.display = '';
@@ -1699,10 +1826,8 @@ p.document.getElementById('ewc-mvu-optimize').addEventListener('click', () => {
   ewcApplyOptimalMvu();
 });
 
-// ── MVU 手动应用（刷新页面） ─────────────────────────────────────
 p.document.getElementById('ewc-mvu-apply').addEventListener('click', async () => {
-  // 清除字段变更的防抖定时器，防止它在 save 之后再次触发
-  // saveSettingsDebounced 从而重置 debounce 计时导致保存延迟到 reload 之后
+
   clearTimeout(_ewcMvuSaveTimer);
   _ewcMvuSaveTimer = null;
 
@@ -1713,15 +1838,13 @@ p.document.getElementById('ewc-mvu-apply').addEventListener('click', async () =>
     if (statusEl) statusEl.textContent = '保存失败: ' + e.message;
     return;
   }
-  // saveSettingsDebounced 的防抖延迟通常为 250ms；
-  // 这里给 1000ms 作为安全余量（即使用即时保存也等到 settle 再刷新）
+
   if (statusEl) statusEl.textContent = '配置已保存，即将刷新…';
   setTimeout(() => {
     window.parent.location.reload();
   }, 1000);
 });
 
-// ── 拖拽：气泡 ───────────────────────────────────────────────────
 let _bDrag=false, _bSX, _bSY, _bOL, _bOT;
 function _bGetXY(e) {
   if (e.touches?.length)        return { x: e.touches[0].clientX,       y: e.touches[0].clientY };
@@ -1764,10 +1887,9 @@ p.document.addEventListener('mouseup', () => {
 p.document.addEventListener('touchend', () => {
   if (_bDrag) { bubble.style.transition=''; _bDrag=false; }
 });
-// 拖拽后阻止 click 触发面板开合
+
 bubble.addEventListener('click', e => { if (_bClickGuard) { e.stopImmediatePropagation(); _bClickGuard=false; } }, true);
 
-// ── 拖拽：面板 ───────────────────────────────────────────────────
 const _dragHandle = p.document.getElementById('ewc-drag-handle');
 let _pDrag=false, _pSX, _pSY, _pOL, _pOT;
 _dragHandle.addEventListener('mousedown', e => {
@@ -1793,9 +1915,6 @@ p.document.addEventListener('touchmove', e => {
 p.document.addEventListener('mouseup', () => { _pDrag=false; });
 p.document.addEventListener('touchend', () => { _pDrag=false; });
 
-// ════════════════════════════════════════════════════════════════════
-//  §10  启动 — 等待 Mvu 就绪后执行（解决 ZOD 加载竞态）
-// ════════════════════════════════════════════════════════════════════
 function waitForMvu(timeout = 15000, interval = 200) {
   return new Promise((resolve, reject) => {
     if (typeof p.Mvu !== 'undefined') return resolve();
@@ -1815,10 +1934,44 @@ function waitForMvu(timeout = 15000, interval = 200) {
 (async function bootstrap() {
   try {
     await waitForMvu(15000);
+
+    const _savedPreset = (typeof SillyTavern !== 'undefined')
+      ? SillyTavern.extensionSettings?._ewcYH?.presetName
+      : undefined;
+
+    const _emNow = ewcGetMvuCfg()?.额外模型解析配置;
+
+    if (_savedPreset && _emNow && _emNow.破限方案 === '使用其他预设') {
+      _emNow.预设名称 = _savedPreset;
+      await ewcSyncMvuNativePreset(_savedPreset);
+    }
+
     await autoSwitch();
   } catch (e) {
     console.error('[EWC] 启动失败:', e.message);
   }
+})();
+
+(function ewcHookFetch() {
+  const _origFetch = p.fetch.bind(p);
+  p.fetch = function(input, init) {
+    try {
+      const url = typeof input === 'string' ? input : (input?.url || '');
+      const mvuApiUrl = ewcGetMvuCfg()?.额外模型解析配置?.api地址 || '';
+      const mvuModel  = ewcGetMvuCfg()?.额外模型解析配置?.模型名称 || '';
+
+      const isMvuReq  = mvuApiUrl && url.startsWith(mvuApiUrl);
+      const isBlocked = CONFIG_BLACKLIST.some(kw => mvuModel.includes(kw));
+      if (isMvuReq && isBlocked) {
+        if (!p._ewcFetchBlockedOnce) {
+          p._ewcFetchBlockedOnce = true;
+          ewcShowToast('🚫 MUV解析异常，请在小助手复制报错码并前往卡区询问原因', 5000);
+        }
+        return Promise.reject(new Error('[EWC] MUV解析异常：请在小助手复制报错码并前往卡区询问原因'));
+      }
+    } catch(e) {}
+    return _origFetch(input, init);
+  };
 })();
 
 export {};
