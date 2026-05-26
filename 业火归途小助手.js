@@ -1,8 +1,8 @@
 // ═══════════════ 业火归途 ═══════════════
 // 酒馆助手中粘贴以下一行即可：
-//   import 'https://cdn.jsdelivr.net/gh/Usersser/Path-Back-Through-Hellfire@v1.2.1/业火归途小助手.js'
+//   import 'https://cdn.jsdelivr.net/gh/Usersser/Path-Back-Through-Hellfire@v1.2.2/业火归途小助手.js'
 // ═══════════════════════════════════════════════════════════
-const EWC_VERSION = '1.2.1';
+const EWC_VERSION = '1.2.2';
 const WORLDBOOK_NAME = '缄默之秋·业火归途 1.3';
 const p = window.parent || window;
 
@@ -414,8 +414,8 @@ if (typeof eventOn === 'function') {
   }
   p._ewcCleanup = function() {
     if (typeof eventOff === 'function') {
-      for (const evt of ALL_EVENTS) { try { eventOff(evt, onCriticalEvent); } catch(e) {} }
-      for (const evt of ALL_EVENTS) { try { eventOff(evt, onSecondaryEvent); } catch(e) {} }
+      for (const evt of CRITICAL_EVENTS)  { try { eventOff(evt, onCriticalEvent);  } catch(e) {} }
+      for (const evt of SECONDARY_EVENTS) { try { eventOff(evt, onSecondaryEvent); } catch(e) {} }
     }
   };
 } else {
@@ -846,8 +846,11 @@ async function ewcSyncMvuNativePreset(presetName) {
     const result = await runInParent(`(async () => {
       const target = ${JSON.stringify(presetName)};
 
-      function findSelectNear(labelText) {
-        for (const el of document.querySelectorAll('label, span, div, td, th')) {
+      const sections = [...document.querySelectorAll('.mvu-section')];
+
+      function findSelectNear(labelText, scope) {
+        const root = scope || document;
+        for (const el of root.querySelectorAll('label, span, div, td, th')) {
           if (el.textContent.trim() !== labelText) continue;
 
           let sib = el.nextElementSibling;
@@ -859,7 +862,7 @@ async function ewcSyncMvuNativePreset(presetName) {
           }
 
           const parent = el.closest('div,section,form,tr');
-          if (parent) {
+          if (parent && root.contains(parent)) {
             const s = parent.querySelector('select');
             if (s) return s;
           }
@@ -876,20 +879,30 @@ async function ewcSyncMvuNativePreset(presetName) {
         '.mvu-preset-select',
       ];
 
-      function findSelectByOption(value) {
-        for (const sel of document.querySelectorAll('select')) {
+      function findSelectByOption(value, scope) {
+        const root = scope || document;
+        for (const sel of root.querySelectorAll('select')) {
           if ([...sel.options].some(o => o.value === value || o.textContent.trim() === value)) {
-
             if (!sel.closest('#ewc-panel')) return sel;
           }
         }
         return null;
       }
 
-      let sel = findSelectNear('目标预设');
+      let sel = null;
+      for (let si = 0; si < sections.length; si++) {
+        sel = findSelectNear('目标预设', sections[si]);
+        if (sel) break;
+      }
       if (!sel) {
         for (const s of CANDIDATE_SELECTORS) {
           sel = document.querySelector(s);
+          if (sel) break;
+        }
+      }
+      if (!sel) {
+        for (let si = 0; si < sections.length; si++) {
+          sel = findSelectByOption(target, sections[si]);
           if (sel) break;
         }
       }
@@ -905,7 +918,11 @@ async function ewcSyncMvuNativePreset(presetName) {
       return { ok: true, selected: opt.value };
     })()`);
 
+    if (result && !result.ok) {
+      console.warn('[EWC] 目标预设同步失败:', result.reason, result.options || '');
+    }
   } catch(e) {
+    console.warn('[EWC] ewcSyncMvuNativePreset 失败:', e.message);
   }
 }
 
@@ -1716,6 +1733,7 @@ function refreshUI() {
 }
 
 function openPanel() {
+  _ewcPresetCache = null;
   const pw = p.innerWidth || window.innerWidth;
   const ph = p.innerHeight || window.innerHeight;
   const rect = bubble.getBoundingClientRect();
