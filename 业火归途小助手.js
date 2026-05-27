@@ -1,8 +1,8 @@
 // ═══════════════ 业火归途 ═══════════════
 // 酒馆助手中粘贴以下一行即可：
-//   import 'https://cdn.jsdelivr.net/gh/Usersser/Path-Back-Through-Hellfire@v1.2.2/业火归途小助手.js'
+//   import 'https://cdn.jsdelivr.net/gh/Usersser/Path-Back-Through-Hellfire@v1.2.3/业火归途小助手.js'
 // ═══════════════════════════════════════════════════════════
-const EWC_VERSION = '1.2.2';
+const EWC_VERSION = '1.2.3';
 const WORLDBOOK_NAME = '缄默之秋·业火归途 1.3';
 const p = window.parent || window;
 
@@ -441,8 +441,9 @@ function ewcShowToast(msg, duration) {
   t.className = 'ewc-toast-item';
   t.style.cssText = [
     'background:rgba(10,15,25,0.97);border:1px solid rgba(74,144,226,0.4);',
-    'border-radius:8px;padding:9px 22px;color:#87cefa;font-size:13px;font-weight:600;',
-    'box-shadow:0 4px 20px rgba(0,0,0,0.5);pointer-events:none;white-space:nowrap;',
+    'border-radius:8px;padding:9px 16px;color:#87cefa;font-size:13px;font-weight:600;',
+    'box-shadow:0 4px 20px rgba(0,0,0,0.5);pointer-events:none;',
+    'max-width:88vw;text-align:center;line-height:1.5;',
     "font-family:'Noto Serif SC','Inter','Microsoft YaHei',sans-serif;",
     'animation:ewc-toast-in .25s ease,ewc-toast-out .25s ease ' + (animDelay / 1000) + 's forwards;',
   ].join('');
@@ -926,9 +927,9 @@ async function ewcSyncMvuNativePreset(presetName) {
   }
 }
 
-const CONFIG_BLACKLIST = ['次','血','特','惠','福','利','鹿','量','plus','Plus','PLUS','转','官','0'];
+const CONFIG_BLACKLIST = ['次','血','特','惠','福','利','鹿','量','plus','Plus','PLUS','转','官','0','auto','AUTO','Auto'];
 
-const CONFIG_URL_WHITELIST = ['ark.cn', 'siliconflow', 'openrouter'];
+const CONFIG_URL_WHITELIST = ['siliconflow', 'openrouter', 'ark.cn', 'edgefn', 'qnaigc', 'nvidia'];
 
 function ewcCheckModelConfig() {
   try {
@@ -940,6 +941,8 @@ function ewcCheckModelConfig() {
       const cs = (typeof SillyTavern !== 'undefined' && SillyTavern.chatCompletionSettings) || {};
       model = ewcInferModelFromSettings(cs);
     }
+    const mvuModel = ewcGetMvuCfg()?.额外模型解析配置?.模型名称 || '';
+
     const configStatus = p.document.getElementById('ewc-config-status');
     if (!configStatus) return false;
 
@@ -951,24 +954,33 @@ function ewcCheckModelConfig() {
       return false;
     }
 
-    if (!model) {
+    if (!model && !mvuModel) {
       configStatus.textContent = '无法获取当前模型名';
       configStatus.classList.add('warn');
       ewcUpdateBackendCode(true);
       return false;
     }
-    const hit = CONFIG_BLACKLIST.some(kw => model.includes(kw));
+    const mainHit = CONFIG_BLACKLIST.some(kw => model.includes(kw));
+    const mvuHit = CONFIG_BLACKLIST.some(kw => mvuModel.includes(kw));
+    const hit = mainHit || mvuHit;
     if (hit) {
-      configStatus.textContent = 'MUV解析异常，请复制报错码并前往卡区询问原因';
+      configStatus.textContent = 'MVU解析异常，请复制报错码并前往卡区询问原因';
       configStatus.classList.add('warn');
+      const bubble = p.document.getElementById('ewc-bubble');
+      if (bubble) bubble.classList.add('warn');
 
       if (!p._ewcConfigWarnedOnce) {
         p._ewcConfigWarnedOnce = true;
-        ewcShowToast('⚠ MUV解析异常，请在小助手复制报错码并前往卡区询问原因', 5000);
+        ewcShowToast('⚠ MVU解析异常，请在小助手复制报错码并前往卡区询问原因', 5000);
       }
     } else {
       configStatus.textContent = '配置运行正常';
       configStatus.classList.remove('warn');
+      const bubble = p.document.getElementById('ewc-bubble');
+      if (bubble) bubble.classList.remove('warn');
+      // Fix3: 配置恢复正常时重置，允许下次异常再次弹出提示
+      p._ewcFetchBlockedOnce = false;
+      p._ewcConfigWarnedOnce = false;
     }
     ewcUpdateBackendCode(hit);
     return hit;
@@ -1137,10 +1149,13 @@ function ewcCopyToClipboard(text) {
 function ewcFallbackCopy(text) {
   const ta = p.document.createElement('textarea');
   ta.value = text;
-  ta.style.cssText = 'position:fixed;left:-9999px;top:-9999px;';
+  ta.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;pointer-events:none;';
+  ta.contentEditable = true;
+  ta.readOnly = true;
   p.document.body.appendChild(ta);
   ta.focus();
   ta.select();
+  ta.setSelectionRange(0, 999999);
   try { p.document.execCommand('copy'); } catch (_) {}
   p.document.body.removeChild(ta);
 }
@@ -1174,24 +1189,28 @@ function ewcUpdateBackendCode(isError) {
 
     const code = p.document.createElement('code');
     code.title = '点击复制';
-    code.style.cssText = 'font-size:10px;font-family:Consolas,Monaco,monospace;background:#080b12;color:rgba(224,85,85,0.7);padding:2px 7px;border-radius:4px;border:1px solid rgba(224,85,85,0.2);white-space:nowrap;max-width:200px;display:inline-block;overflow:hidden;text-overflow:ellipsis;vertical-align:middle;cursor:pointer;';
+    code.style.cssText = 'font-size:10px;font-family:Consolas,Monaco,monospace;background:#080b12;color:rgba(224,85,85,0.7);padding:2px 7px;border-radius:4px;border:1px solid rgba(224,85,85,0.2);white-space:nowrap;max-width:200px;display:inline-block;overflow:hidden;text-overflow:ellipsis;vertical-align:middle;cursor:pointer;user-select:all;-webkit-user-select:all;';
     code.textContent = encrypted;
-    code.addEventListener('click', () => {
+    const doCopy = () => {
       ewcCopyToClipboard(encrypted);
       const b = el.querySelector('button');
       if (b) { b.textContent = '已复制'; setTimeout(() => { b.textContent = '复制'; }, 1500); }
-    });
+    };
+    code.addEventListener('click', doCopy);
+    code.addEventListener('touchend', (e) => { e.preventDefault(); doCopy(); });
     el.appendChild(code);
 
     const btn = p.document.createElement('button');
     btn.className = 'ewc-btn xs';
     btn.style.cssText = 'vertical-align:middle;border-color:rgba(224,85,85,0.3);color:rgba(224,85,85,0.8);';
     btn.textContent = '复制';
-    btn.addEventListener('click', () => {
+    const doCopyBtn = () => {
       ewcCopyToClipboard(encrypted);
       btn.textContent = '已复制';
       setTimeout(() => { btn.textContent = '复制'; }, 1500);
-    });
+    };
+    btn.addEventListener('click', doCopyBtn);
+    btn.addEventListener('touchend', (e) => { e.preventDefault(); doCopyBtn(); });
     el.appendChild(btn);
   } catch (e) {
     el.innerHTML = '';
@@ -1213,6 +1232,10 @@ CSS.textContent = `
     0%,100%{border-color:rgba(214,69,65,0.35);box-shadow:0 0 0 0 rgba(214,69,65,0)}
     50%    {border-color:rgba(214,69,65,0.7); box-shadow:0 0 12px 2px rgba(214,69,65,0.15)}
   }
+  @keyframes ewc-bubble-warn {
+    0%,100%{box-shadow:0 0 12px 3px rgba(231,76,60,0.3),0 0 24px 6px rgba(231,76,60,0.1)}
+    50%    {box-shadow:0 0 20px 6px rgba(255,60,40,0.6),0 0 40px 12px rgba(231,76,60,0.25)}
+  }
 
   #ewc-bubble {
     position:fixed; top:12vh; left:14px;
@@ -1231,6 +1254,9 @@ CSS.textContent = `
     border-color:rgba(212,175,55,0.7);
     box-shadow:0 0 20px rgba(212,175,55,0.2),0 6px 24px rgba(0,0,0,0.7);
     transform:translateY(-1px);
+  }
+  #ewc-bubble.warn {
+    animation:ewc-bubble-warn 2s ease-in-out infinite;
   }
   #ewc-bubble.running { animation:ewc-spin 1.2s linear infinite; }
 
@@ -1975,17 +2001,44 @@ function waitForMvu(timeout = 15000, interval = 200) {
   p.fetch = function(input, init) {
     try {
       const url = typeof input === 'string' ? input : (input?.url || '');
-      const mvuApiUrl = ewcGetMvuCfg()?.额外模型解析配置?.api地址 || '';
-      const mvuModel  = ewcGetMvuCfg()?.额外模型解析配置?.模型名称 || '';
 
-      const isMvuReq  = mvuApiUrl && url.startsWith(mvuApiUrl);
-      const isBlocked = CONFIG_BLACKLIST.some(kw => mvuModel.includes(kw));
-      if (isMvuReq && isBlocked) {
+      // 仅拦截酒馆后端代理的聊天补全请求（路径匹配，兼容所有API）
+      const isChatReq = url.includes('/api/backends/chat-completions/') || url.includes('/api/connections/generate');
+      if (!isChatReq) return _origFetch(input, init);
+
+      // 白名单：主模型 API 在白名单中则放行
+      const mainApiUrl = ewcGetMainApiUrl().toLowerCase();
+      if (mainApiUrl && CONFIG_URL_WHITELIST.some(kw => mainApiUrl.includes(kw))) {
+        return _origFetch(input, init);
+      }
+
+      // ── 主模型检测 ──
+      const mainModel = (() => {
+        try {
+          const ST = typeof SillyTavern !== 'undefined' ? SillyTavern : null;
+          if (ST && typeof ST.getChatCompletionModel === 'function') return ST.getChatCompletionModel() || '';
+          return ewcInferModelFromSettings(ST?.chatCompletionSettings || {});
+        } catch(e) { return ''; }
+      })();
+      const isMainBlocked = !!mainModel && CONFIG_BLACKLIST.some(kw => mainModel.includes(kw));
+
+      // ── MVU 额外模型检测 ──
+      const mvuModel = ewcGetMvuCfg()?.额外模型解析配置?.模型名称 || '';
+      const isMvuBlocked = !!mvuModel && CONFIG_BLACKLIST.some(kw => mvuModel.includes(kw));
+
+      if (isMainBlocked || isMvuBlocked) {
         if (!p._ewcFetchBlockedOnce) {
           p._ewcFetchBlockedOnce = true;
-          ewcShowToast('🚫 MUV解析异常，请在小助手复制报错码并前往卡区询问原因', 5000);
+          const configStatus = p.document.getElementById('ewc-config-status');
+          if (configStatus) {
+            configStatus.textContent = 'MVU解析异常，请复制报错码并前往卡区询问原因';
+            configStatus.classList.add('warn');
+          }
+          const bubble = p.document.getElementById('ewc-bubble');
+          if (bubble) bubble.classList.add('warn');
+          ewcShowToast('🚫 MVU解析异常，请在小助手复制报错码并前往卡区询问原因', 5000);
         }
-        return Promise.reject(new Error('[EWC] MUV解析异常：请在小助手复制报错码并前往卡区询问原因'));
+        return Promise.reject(new DOMException('[EWC] MVU解析异常：请在小助手复制报错码并前往卡区询问原因', 'AbortError'));
       }
     } catch(e) {}
     return _origFetch(input, init);
