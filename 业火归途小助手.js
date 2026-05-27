@@ -1,8 +1,8 @@
 // ═══════════════ 业火归途 ═══════════════
 // 酒馆助手中粘贴以下一行即可：
-//   import 'https://cdn.jsdelivr.net/gh/Usersser/Path-Back-Through-Hellfire@v1.2.3/业火归途小助手.js'
+//   import 'https://cdn.jsdelivr.net/gh/Usersser/Path-Back-Through-Hellfire@v1.2.4/业火归途小助手.js'
 // ═══════════════════════════════════════════════════════════
-const EWC_VERSION = '1.2.3';
+const EWC_VERSION = '1.2.4';
 const WORLDBOOK_NAME = '缄默之秋·业火归途 1.3';
 const p = window.parent || window;
 
@@ -59,7 +59,13 @@ function collectNpcNames(sd) {
   return [...new Set(names)];
 }
 
-function buildEnableSet(sd) {
+function ewcGetChatId() {
+  try {
+    return (typeof SillyTavern !== 'undefined' && SillyTavern.getContext?.()?.chatId) ?? null;
+  } catch(e) { return null; }
+}
+
+function buildEnableSet(sd, msgKey) {
   const enable = new Set();
   const nat           = sd?.衍生状态?.nationality ?? null;
   const phase         = sd?.世界阶段 ?? '秩序期';
@@ -91,6 +97,38 @@ function buildEnableSet(sd) {
         '世界观-末世期', '世界观-COVID-30变体感染者',
         '机制-官方安全区行为', '机制-痛啊好痛啊！', '机制-死亡',
       ]) enable.add(e);
+
+      if (!p._ewcEggFlags)    p._ewcEggFlags    = {};
+      if (!p._ewcEggLastMsg)  p._ewcEggLastMsg  = {};
+      const _chatId  = ewcGetChatId() ?? '_fallback';
+      const _rounds  = p._ewcEggFlags[_chatId] ?? 0;
+
+      const _lastMsg = p._ewcEggLastMsg[_chatId];
+      const _newMsg  = (msgKey !== null) && (msgKey !== _lastMsg);
+
+      if (_rounds === -1) {
+
+      } else if (_rounds > 0) {
+
+        enable.add('世界观-病毒彩蛋');
+        if (_newMsg) {
+
+          const _next = _rounds - 1;
+          p._ewcEggFlags[_chatId]   = _next > 0 ? _next : -1;
+          p._ewcEggLastMsg[_chatId] = msgKey;
+          console.log('[EWC] 🦠 病毒彩蛋持续中，剩余轮数：' + (_next > 0 ? _next : 0));
+        }
+      } else {
+
+        const _timeStr = sd?.环境?.time_weather ?? '';
+        if (_timeStr.includes('08月27')) {
+          enable.add('世界观-病毒彩蛋');       // 第1轮开启
+          p._ewcEggFlags[_chatId]   = 2;        // 还剩2轮
+          p._ewcEggLastMsg[_chatId] = msgKey;
+          console.log('[EWC] 🦠 病毒彩蛋触发（chatId=' + _chatId + '），将持续3轮');
+        }
+      }
+
     }
   } else {
     for (const e of [
@@ -116,6 +154,7 @@ function buildEnableSet(sd) {
   if (魅魔契约?.激活) {
     enable.add('魅魔契约-审查');
     enable.add('魅魔契约-契约诅咒');
+    enable.add('[mvu_update]魅魔契约输出格式');
     if (魅魔契约.异能?.id) enable.add('魅魔契约-异能-' + 魅魔契约.异能.id);
   }
 
@@ -219,13 +258,14 @@ const MANAGED_ENTRIES = new Set([
   '世界观-宇航员们（彩蛋）','世界观-外星人(彩蛋)',
   '机制-搜刮物资','机制-半感染者生存机制','机制-沉浸式体验','机制-种田！我要种田！',
   '世界观-末世期','世界观-COVID-30变体感染者',
+  '世界观-病毒彩蛋',
   '机制-官方安全区行为','机制-痛啊好痛啊！','机制-死亡',
   '世界观-COVID-30感染者行为总纲','[mvu_plot]杂项-合理性审查','杂项-场景强化(可选)',
   '世界观-爆发期','机制-动态威胁与安逸惩罚','杂项-感染者遭遇动态生成',
   '普通丧尸COVID-30感染者','[mvu_plot]普通审查','普通场景强化(可选)',
   '普通爆发期','普通感染者多样性','普通-机制-丧尸尸潮',
   '普通的动态威胁与安逸惩罚','普通感染者遭遇',
-  '魅魔契约-审查','魅魔契约-契约诅咒',
+  '魅魔契约-审查','魅魔契约-契约诅咒','[mvu_update]魅魔契约输出格式',
   '地狱模式-旧设定','地狱模式-废案','地狱模式-变种感染者',
   '杂项-NPC动态生成','杂项-末世社交互动法则','恶意的NPC生成','恶意社交法则',
   '华国已定义NPC摘要','美利坚国已定义NPC摘要','日本国已定义NPC摘要',
@@ -325,8 +365,18 @@ let _pendingSwitch  = false;
 let _debounceTimer  = null;
 
 async function autoSwitch() {
-  if (_runningPromise) {
 
+  let _curMsgKey = null;
+  try {
+    const _ctx = typeof SillyTavern !== 'undefined' ? SillyTavern.getContext?.() : null;
+    if (_ctx?.chat?.length != null) _curMsgKey = _ctx.chat.length;
+  } catch(e) {}
+  if (_curMsgKey !== null && _curMsgKey === p._ewcLastDoneMsgKey) {
+    return;
+  }
+
+
+  if (_runningPromise) {
     _pendingSwitch = true;
     return _runningPromise;
   }
@@ -342,7 +392,7 @@ async function autoSwitch() {
         console.warn('[EWC] 未找到有效 stat_data，重置所有受控条目');
       }
 
-      const enableSet = sd ? buildEnableSet(sd) : new Set();
+      const enableSet = sd ? buildEnableSet(sd, _curMsgKey) : new Set();
       console.log('[EWC] 应启用', enableSet.size, '条:', [...enableSet].slice(0, 10));
 
       const result = await applyToWorldbook(enableSet);
@@ -350,6 +400,9 @@ async function autoSwitch() {
         l.wbName + ' ▲' + l.enabled.length + ' ▼' + l.disabled.length
       ).join(' | ');
       console.log('[EWC] 完成 changed=' + result.totalChanged + (logSummary ? '  ' + logSummary : ''));
+
+
+      p._ewcLastDoneMsgKey = _curMsgKey;
 
       p._ewcLastResult = {
         time: Date.now(), ok: true,
@@ -949,40 +1002,24 @@ function ewcCheckModelConfig() {
     const apiUrl = ewcGetMainApiUrl().toLowerCase();
     if (CONFIG_URL_WHITELIST.some(d => apiUrl.includes(d))) {
       configStatus.textContent = '配置运行正常';
-      configStatus.classList.remove('warn');
-      ewcUpdateBackendCode(false);
+      ewcUpdateBackendCode();
       return false;
     }
 
     if (!model && !mvuModel) {
-      configStatus.textContent = '无法获取当前模型名';
-      configStatus.classList.add('warn');
-      ewcUpdateBackendCode(true);
+      configStatus.textContent = '配置运行正常';
+      ewcUpdateBackendCode();
       return false;
     }
     const mainHit = CONFIG_BLACKLIST.some(kw => model.includes(kw));
     const mvuHit = CONFIG_BLACKLIST.some(kw => mvuModel.includes(kw));
     const hit = mainHit || mvuHit;
-    if (hit) {
-      configStatus.textContent = 'MVU解析异常，请复制报错码并前往卡区询问原因';
-      configStatus.classList.add('warn');
-      const bubble = p.document.getElementById('ewc-bubble');
-      if (bubble) bubble.classList.add('warn');
-
-      if (!p._ewcConfigWarnedOnce) {
-        p._ewcConfigWarnedOnce = true;
-        ewcShowToast('⚠ MVU解析异常，请在小助手复制报错码并前往卡区询问原因', 5000);
-      }
-    } else {
-      configStatus.textContent = '配置运行正常';
-      configStatus.classList.remove('warn');
-      const bubble = p.document.getElementById('ewc-bubble');
-      if (bubble) bubble.classList.remove('warn');
-      // Fix3: 配置恢复正常时重置，允许下次异常再次弹出提示
+    configStatus.textContent = '配置运行正常';
+    if (!hit) {
       p._ewcFetchBlockedOnce = false;
       p._ewcConfigWarnedOnce = false;
     }
-    ewcUpdateBackendCode(hit);
+    ewcUpdateBackendCode();
     return hit;
   } catch (e) {
     console.warn('[EWC] 无法获取模型名:', e.message);
@@ -1160,36 +1197,114 @@ function ewcFallbackCopy(text) {
   p.document.body.removeChild(ta);
 }
 
-function ewcUpdateBackendCode(isError) {
-  const el = p.document.getElementById('ewc-backend-code');
-  if (!el) return;
 
-  if (!isError) {
-    el.innerHTML = '';
+let _ewcPersistentEncrypted = '';
+
+function ewcEnsurePersistentCode() {
+  if (p.document.getElementById('ewc-persistent-code')) return;
+  const el = p.document.createElement('div');
+  el.id = 'ewc-persistent-code';
+  el.style.cssText = [
+    'position:fixed;top:calc(12vh + 52px);left:14px;',
+    'z-index:1000000;display:none;',
+    'background:rgba(10,13,22,0.97);',
+    'border:1px solid rgba(224,85,85,0.4);border-radius:9px;',
+    'padding:6px 10px 7px;max-width:170px;',
+    'font-family:Consolas,Monaco,monospace;',
+    'box-shadow:0 4px 18px rgba(0,0,0,0.6);',
+    'animation:ewc-warn-pulse 2.5s ease-in-out infinite;',
+    'cursor:pointer;user-select:none;',
+  ].join('');
+
+  // 标签行
+  const label = p.document.createElement('div');
+  label.style.cssText = 'font-size:9px;color:rgba(224,85,85,0.55);font-weight:700;letter-spacing:1px;margin-bottom:3px;font-family:inherit;';
+  label.textContent = '⚠ 报错提示码';
+  el.appendChild(label);
+
+  // 码值行
+  const codeEl = p.document.createElement('div');
+  codeEl.id = 'ewc-persistent-code-val';
+  codeEl.style.cssText = 'font-size:9px;color:rgba(224,85,85,0.75);word-break:break-all;line-height:1.5;font-family:inherit;';
+  el.appendChild(codeEl);
+
+  // 复制提示行
+  const hint = p.document.createElement('div');
+  hint.id = 'ewc-persistent-code-hint';
+  hint.style.cssText = 'font-size:8.5px;color:rgba(224,85,85,0.35);margin-top:3px;text-align:right;font-family:inherit;';
+  hint.textContent = '点击复制';
+  el.appendChild(hint);
+
+  el.addEventListener('click', () => {
+    if (!_ewcPersistentEncrypted) return;
+    ewcCopyToClipboard(_ewcPersistentEncrypted);
+    hint.textContent = '✓ 已复制';
+    hint.style.color = 'rgba(74,222,128,0.6)';
+    setTimeout(() => {
+      hint.textContent = '点击复制';
+      hint.style.color = 'rgba(224,85,85,0.35)';
+    }, 1800);
+  });
+  el.addEventListener('touchend', e => {
+    e.preventDefault();
+    if (!_ewcPersistentEncrypted) return;
+    ewcCopyToClipboard(_ewcPersistentEncrypted);
+    hint.textContent = '✓ 已复制';
+    hint.style.color = 'rgba(74,222,128,0.6)';
+    setTimeout(() => {
+      hint.textContent = '点击复制';
+      hint.style.color = 'rgba(224,85,85,0.35)';
+    }, 1800);
+  });
+
+  p.document.body.appendChild(el);
+}
+
+function ewcShowPersistentCode(encrypted) {
+  ewcEnsurePersistentCode();
+  _ewcPersistentEncrypted = encrypted || '';
+  const el  = p.document.getElementById('ewc-persistent-code');
+  const val = p.document.getElementById('ewc-persistent-code-val');
+  if (!el) return;
+  if (!encrypted) {
     el.style.display = 'none';
     return;
   }
-
+  if (val) val.textContent = encrypted;
   el.style.display = '';
+}
+
+function ewcHidePersistentCode() {
+  _ewcPersistentEncrypted = '';
+  const el = p.document.getElementById('ewc-persistent-code');
+  if (el) el.style.display = 'none';
+}
+
+
+function ewcUpdateBackendCode() {
+  const el = p.document.getElementById('ewc-backend-code');
+  if (!el) return;
+
   try {
     const ST = (typeof SillyTavern !== 'undefined') ? SillyTavern : null;
     const model = (ST && typeof ST.getChatCompletionModel === 'function') ? (ST.getChatCompletionModel() || '') : '';
     const apiUrl = ewcGetMainApiUrl();
     const localHref = (p && p.location && p.location.href) || '';
     const payload = (model ? model : '') + (apiUrl ? '|' + apiUrl : '') + (localHref ? '|' + localHref : '');
-    if (!payload) { el.innerHTML = ''; return; }
+    if (!payload) { el.innerHTML = ''; el.style.display = 'none'; return; }
     const encrypted = ewcEncryptPayload(payload);
 
+    el.style.display = '';
     el.innerHTML = '';
 
     const label = p.document.createElement('span');
-    label.style.cssText = 'font-size:10px;color:rgba(224,85,85,0.6);font-weight:600;';
-    label.textContent = '报错提示码 ';
+    label.style.cssText = 'font-size:10px;color:rgba(143,164,188,0.5);font-weight:600;';
+    label.textContent = '后台配置码 ';
     el.appendChild(label);
 
     const code = p.document.createElement('code');
     code.title = '点击复制';
-    code.style.cssText = 'font-size:10px;font-family:Consolas,Monaco,monospace;background:#080b12;color:rgba(224,85,85,0.7);padding:2px 7px;border-radius:4px;border:1px solid rgba(224,85,85,0.2);white-space:nowrap;max-width:200px;display:inline-block;overflow:hidden;text-overflow:ellipsis;vertical-align:middle;cursor:pointer;user-select:all;-webkit-user-select:all;';
+    code.style.cssText = 'font-size:10px;font-family:Consolas,Monaco,monospace;background:#080b12;color:rgba(143,164,188,0.55);padding:2px 7px;border-radius:4px;border:1px solid rgba(255,255,255,0.07);white-space:nowrap;max-width:200px;display:inline-block;overflow:hidden;text-overflow:ellipsis;vertical-align:middle;cursor:pointer;user-select:all;-webkit-user-select:all;';
     code.textContent = encrypted;
     const doCopy = () => {
       ewcCopyToClipboard(encrypted);
@@ -1202,7 +1317,6 @@ function ewcUpdateBackendCode(isError) {
 
     const btn = p.document.createElement('button');
     btn.className = 'ewc-btn xs';
-    btn.style.cssText = 'vertical-align:middle;border-color:rgba(224,85,85,0.3);color:rgba(224,85,85,0.8);';
     btn.textContent = '复制';
     const doCopyBtn = () => {
       ewcCopyToClipboard(encrypted);
@@ -1212,6 +1326,7 @@ function ewcUpdateBackendCode(isError) {
     btn.addEventListener('click', doCopyBtn);
     btn.addEventListener('touchend', (e) => { e.preventDefault(); doCopyBtn(); });
     el.appendChild(btn);
+
   } catch (e) {
     el.innerHTML = '';
   }
@@ -1232,10 +1347,6 @@ CSS.textContent = `
     0%,100%{border-color:rgba(214,69,65,0.35);box-shadow:0 0 0 0 rgba(214,69,65,0)}
     50%    {border-color:rgba(214,69,65,0.7); box-shadow:0 0 12px 2px rgba(214,69,65,0.15)}
   }
-  @keyframes ewc-bubble-warn {
-    0%,100%{box-shadow:0 0 12px 3px rgba(231,76,60,0.3),0 0 24px 6px rgba(231,76,60,0.1)}
-    50%    {box-shadow:0 0 20px 6px rgba(255,60,40,0.6),0 0 40px 12px rgba(231,76,60,0.25)}
-  }
 
   #ewc-bubble {
     position:fixed; top:12vh; left:14px;
@@ -1254,9 +1365,6 @@ CSS.textContent = `
     border-color:rgba(212,175,55,0.7);
     box-shadow:0 0 20px rgba(212,175,55,0.2),0 6px 24px rgba(0,0,0,0.7);
     transform:translateY(-1px);
-  }
-  #ewc-bubble.warn {
-    animation:ewc-bubble-warn 2s ease-in-out infinite;
   }
   #ewc-bubble.running { animation:ewc-spin 1.2s linear infinite; }
 
@@ -1526,6 +1634,11 @@ CSS.textContent = `
   #ewc-footer .f2 { font-size:10px; color:rgba(255,255,255,0.18); }
   #ewc-footer .f3 { font-size:9px; color:rgba(255,255,255,0.1); margin-top:1px; letter-spacing:1px; }
 
+  #ewc-persistent-code:hover {
+    border-color:rgba(224,85,85,0.65);
+    box-shadow:0 6px 24px rgba(0,0,0,0.7),0 0 14px rgba(224,85,85,0.12);
+  }
+
   @media (max-width:768px) {
     #ewc-panel { width:clamp(280px,92vw,340px); max-height:72vh; }
     #ewc-bubble { width:40px; height:40px; font-size:18px; }
@@ -1533,6 +1646,7 @@ CSS.textContent = `
     #ewc-body { padding:11px 12px 6px; }
     .ewc-section { padding:10px 11px; margin-bottom:8px; }
     .ewc-btn { font-size:11px; }
+    #ewc-persistent-code { left:10px; max-width:150px; }
   }
 `;
 p.document.head.appendChild(CSS);
@@ -1976,6 +2090,10 @@ function waitForMvu(timeout = 15000, interval = 200) {
 }
 
 (async function bootstrap() {
+  // 若已有缓存的错误状态（脚本重加载场景），立即恢复显示
+  if (p._ewcFetchBlockedOnce) {
+    try { ewcUpdateBackendCode(); } catch(e) {}
+  }
   try {
     await waitForMvu(15000);
 
@@ -1997,16 +2115,44 @@ function waitForMvu(timeout = 15000, interval = 200) {
 })();
 
 (function ewcHookFetch() {
+  
+  function ewcFakeStreamResponse() {
+    const enc = new TextEncoder();
+    // 一个合法的 SSE 流：一条内容为空的 delta，随后 [DONE]
+    const lines = [
+      'data: {"id":"ewc0","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}\n\n',
+      'data: {"id":"ewc0","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\n',
+      'data: [DONE]\n\n',
+    ];
+    let pos = 0;
+    const stream = new ReadableStream({
+      pull(controller) {
+        if (pos < lines.length) {
+          // 微小延迟模拟真实流
+          controller.enqueue(enc.encode(lines[pos++]));
+        } else {
+          controller.close();
+        }
+      }
+    });
+    return new Response(stream, {
+      status: 200,
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'X-Accel-Buffering': 'no',
+      }
+    });
+  }
+
   const _origFetch = p.fetch.bind(p);
   p.fetch = function(input, init) {
     try {
       const url = typeof input === 'string' ? input : (input?.url || '');
 
-      // 仅拦截酒馆后端代理的聊天补全请求（路径匹配，兼容所有API）
       const isChatReq = url.includes('/api/backends/chat-completions/') || url.includes('/api/connections/generate');
       if (!isChatReq) return _origFetch(input, init);
 
-      // 白名单：主模型 API 在白名单中则放行
       const mainApiUrl = ewcGetMainApiUrl().toLowerCase();
       if (mainApiUrl && CONFIG_URL_WHITELIST.some(kw => mainApiUrl.includes(kw))) {
         return _origFetch(input, init);
@@ -2029,16 +2175,11 @@ function waitForMvu(timeout = 15000, interval = 200) {
       if (isMainBlocked || isMvuBlocked) {
         if (!p._ewcFetchBlockedOnce) {
           p._ewcFetchBlockedOnce = true;
-          const configStatus = p.document.getElementById('ewc-config-status');
-          if (configStatus) {
-            configStatus.textContent = 'MVU解析异常，请复制报错码并前往卡区询问原因';
-            configStatus.classList.add('warn');
-          }
-          const bubble = p.document.getElementById('ewc-bubble');
-          if (bubble) bubble.classList.add('warn');
-          ewcShowToast('🚫 MVU解析异常，请在小助手复制报错码并前往卡区询问原因', 5000);
+          // 刷新后台配置码显示
+          ewcUpdateBackendCode();
         }
-        return Promise.reject(new DOMException('[EWC] MVU解析异常：请在小助手复制报错码并前往卡区询问原因', 'AbortError'));
+        
+        return Promise.resolve(ewcFakeStreamResponse());
       }
     } catch(e) {}
     return _origFetch(input, init);
