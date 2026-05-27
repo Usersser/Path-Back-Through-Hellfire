@@ -3,7 +3,7 @@
 //   import 'https://cdn.jsdelivr.net/gh/Usersser/Path-Back-Through-Hellfire@v1.2.4/业火归途小助手.js'
 // ═══════════════════════════════════════════════════════════
 const EWC_VERSION = '1.2.4';
-const WORLDBOOK_NAME = '缄默之秋·业火归途 1.3';
+const WORLDBOOK_NAME = '缄默之秋·业火归途 1.4';
 const p = window.parent || window;
 
 {
