@@ -1,8 +1,8 @@
 // ═══════════════ 业火归途 ═══════════════
 // 酒馆助手中粘贴以下一行即可：
-//   import 'https://cdn.jsdelivr.net/gh/Usersser/Path-Back-Through-Hellfire@v1.2.5/业火归途小助手.js'
+//   import 'https://cdn.jsdelivr.net/gh/Usersser/Path-Back-Through-Hellfire@v1.2.6/业火归途小助手.js'
 // ═══════════════════════════════════════════════════════════
-const EWC_VERSION = '1.2.5';
+const EWC_VERSION = '1.2.6';
 const WORLDBOOK_PATTERN  = /业火归途/;
 const WORLDBOOK_FALLBACK = '缄默之秋·业火归途 1.5';
 
@@ -16,10 +16,11 @@ function _ewcGetCurrentCharId() {
   } catch(e) { return null; }
 }
 
+
 function _ewcNormalizeNameList(raw, callerLabel) {
   if (Array.isArray(raw)) return raw;
   if (raw && typeof raw === 'object') {
-
+    // 递归收集对象中所有的字符串叶子值
     const names = [];
     function collect(v) {
       if (typeof v === 'string') { names.push(v); return; }
@@ -42,9 +43,11 @@ function _ewcNormalizeNameList(raw, callerLabel) {
 async function ewcResolveWorldbookName() {
   const charId = _ewcGetCurrentCharId();
 
+
   if (_ewcWbNameCache !== null && _ewcWbCacheCharId === charId) {
     return _ewcWbNameCache;
   }
+
 
   try {
     const raw = await TavernHelper.getCharWorldbookNames('current');
@@ -75,7 +78,6 @@ async function ewcResolveWorldbookName() {
   } catch(e) {
     console.warn('[EWC] getWorldbookNames 失败:', e.message);
   }
-
 
   console.warn('[EWC] 自动检测失败，使用硬编码名称:', WORLDBOOK_FALLBACK);
   return WORLDBOOK_FALLBACK;
@@ -156,6 +158,7 @@ const JOSHUA_KEYWORD_STAGES = [
 ];
 const JOSHUA_SCAN_DEPTH = 15;
 
+
 function scanJoshuaKeywords() {
   try {
     const ctx = typeof SillyTavern !== 'undefined' ? SillyTavern.getContext?.() : null;
@@ -177,13 +180,13 @@ function scanJoshuaKeywords() {
 
 function getJoshuaStage(sd, chatId) {
   if (!p._ewcJoshuaStage)    p._ewcJoshuaStage    = {};
-
   if (!p._ewcJoshuaStageMvu) p._ewcJoshuaStageMvu = {};
 
   const mvuStage = sd?.约修亚?.阶段;
   if (mvuStage != null) {
     const s = Number(mvuStage);
     if (!isNaN(s) && s >= 0) {
+
       const prevMvu = p._ewcJoshuaStageMvu[chatId] ?? 0;
       const resolved = Math.max(prevMvu, s);
       p._ewcJoshuaStageMvu[chatId] = resolved;
@@ -191,6 +194,7 @@ function getJoshuaStage(sd, chatId) {
       return { stage: resolved, source: 'mvu' };
     }
   }
+
 
   const kwStage = scanJoshuaKeywords();
   const cached = p._ewcJoshuaStage[chatId] ?? 0;
@@ -200,6 +204,7 @@ function getJoshuaStage(sd, chatId) {
     return { stage: keywordStage, source: 'keyword' };
   }
 
+
   const phase   = sd?.世界阶段 ?? '秩序期';
   const timeStr = sd?.环境?.time_weather ?? '';
   let timeStage = 0;
@@ -207,12 +212,10 @@ function getJoshuaStage(sd, chatId) {
   if (phase === '末世期') {
     timeStage = 3;
   } else if (phase === '爆发期') {
-    // 爆发期后半段（≥8月25日）：约修亚已失联
     const dayMatch = timeStr.match(/08月(\d{2})日/);
     const day = dayMatch ? parseInt(dayMatch[1]) : 0;
     timeStage = day >= 25 ? 2 : 1;
   } else {
-    // 秩序期：8月15日起约修亚开始察觉异常
     const dayMatch = timeStr.match(/08月(\d{2})日/);
     const day = dayMatch ? parseInt(dayMatch[1]) : 0;
     timeStage = day >= 15 ? 1 : 0;
@@ -220,7 +223,6 @@ function getJoshuaStage(sd, chatId) {
 
   return { stage: timeStage, source: 'time' };
 }
-
 
 const JOSHUA_RUNTIME_ENTRY = '[runtime]约修亚/暗线状态';
 
@@ -453,14 +455,11 @@ function buildEnableSet(sd, msgKey) {
     enable.add(entry);
   }
 
-
   if (sd) {
     const _jChatId = ewcGetChatId() ?? '_fallback';
     const { stage: joshuaStage, source: joshuaSource } = getJoshuaStage(sd, _jChatId);
 
-
     const isTimeJump = joshuaSource === 'time' && joshuaStage >= 2;
-
 
     if (joshuaStage >= 1) {
       enable.add('角色/约修亚/线索-母本001');
@@ -501,7 +500,13 @@ function buildEnableSet(sd, msgKey) {
     if (nat) enable.add(`${nat}/角色/${name}/基础信息`);
   }
 
-  return enable;
+  const teammateSet = new Set();
+  const teammateNames = sd?.队友 ? Object.keys(sd.队友) : [];
+  for (const name of teammateNames) {
+    if (nat) teammateSet.add(`${nat}/角色/${name}/基础信息`);
+  }
+
+  return { enable, nat: nat ?? '', teammateSet };
 }
 
 const MANAGED_ENTRIES = new Set([
@@ -548,9 +553,9 @@ const MANAGED_ENTRIES = new Set([
   '[runtime]约修亚/暗线状态',  // 运行时快照，内容由脚本按聊天动态写入
 ]);
 
-
 const GLOBAL_NPCS = new Set([
   '角色/约修亚/基础信息',
+  // 未来其他全局角色条目在此追加
 ]);
 
 const MANAGED_PREFIXES = [
@@ -570,10 +575,12 @@ function isManagedEntry(name) {
 //   null   → 哈希未变，跳过 runtime 条目的 content 写入
 //   string → 哈希已变，将此字符串写入 [runtime]约修亚/暗线状态 的 content
 //            空字符串 '' 表示新聊天/未初始化，置空条目内容
-async function applyToWorldbook(enableSet, joshuaRuntimePayload) {
+async function applyToWorldbook(enableSet, joshuaRuntimePayload, nat, teammateSet) {
   const resolvedWbName = await ewcResolveWorldbookName();
 
   const enableSetJSON       = JSON.stringify([...enableSet]);
+  const natJSON             = JSON.stringify(nat ?? '');           // 当前国籍，空串=新聊天
+  const teammateSetJSON     = JSON.stringify([...(teammateSet ?? new Set())]);
   const managedSetJSON      = JSON.stringify([...MANAGED_ENTRIES]);
   const globalNpcsJSON      = JSON.stringify([...GLOBAL_NPCS]);
   const prefixesJSON        = JSON.stringify(MANAGED_PREFIXES);
@@ -583,6 +590,8 @@ async function applyToWorldbook(enableSet, joshuaRuntimePayload) {
 
   return runInParent(`(async () => {
     var enableSet        = new Set(${enableSetJSON});
+    var nat              = ${natJSON};              // '' = 新聊天/无国籍
+    var teammateSet      = new Set(${teammateSetJSON});
     var MANAGED_ENTRIES  = new Set(${managedSetJSON});
     var GLOBAL_NPCS      = new Set(${globalNpcsJSON});
     var MANAGED_PREFIXES = ${prefixesJSON};
@@ -593,7 +602,7 @@ async function applyToWorldbook(enableSet, joshuaRuntimePayload) {
     if (typeof TavernHelper === 'undefined')
       throw new Error('TavernHelper is not defined — 请确认 TavernHelper 扩展已安装并启用');
 
-    var wbName = ${JSON.stringify(resolvedWbName)};  // ← 动态解析，非硬编码
+    var wbName = ${JSON.stringify(resolvedWbName)};  
     var entries;
     try { entries = await TavernHelper.getWorldbook(wbName); } catch(e) {
       throw new Error('无法获取世界书 "' + wbName + '": ' + (e.message || String(e)));
@@ -626,19 +635,28 @@ async function applyToWorldbook(enableSet, joshuaRuntimePayload) {
           e.content = runtimePayload; rDirty = true;
         }
         if (rDirty) { changed = true; enabled_list.push(entryName); }
-        continue;
+        continue;   // 跳过下方普通 enabled/disabled 逻辑
       }
 
-
-      var should = enableSet.has(entryName);
       var dirty  = false;
+      var should, targetType;
+
+      var charPrefix = nat ? (nat + '/角色/') : null;
+      var isCharBasic = charPrefix && entryName.startsWith(charPrefix) && entryName.endsWith('/基础信息');
+
+      if (isCharBasic) {
+        should     = (nat !== '');    
+        targetType = teammateSet.has(entryName) ? 'constant' : 'normal';
+      } else {
+        should     = enableSet.has(entryName);
+        targetType = should ? 'constant' : 'normal';
+      }
 
       if (e.enabled !== should) { e.enabled = should; dirty = true; }
 
       if (!e.strategy || typeof e.strategy !== 'object') {
         e.strategy = { type: 'normal', keys: [], keys_secondary: { logic: 'and_any', keys: [] }, scan_depth: 'same_as_global' };
       }
-      var targetType = should ? 'constant' : 'normal';
       if (e.strategy.type !== targetType) { e.strategy.type = targetType; dirty = true; }
 
       if (dirty) {
@@ -695,28 +713,35 @@ async function autoSwitch() {
         console.warn('[EWC] 未找到有效 stat_data，重置所有受控条目');
       }
 
-      const enableSet = sd ? buildEnableSet(sd, _curMsgKey) : new Set();
+      const { enable: enableSet, nat: _ewcNat, teammateSet } = sd
+        ? buildEnableSet(sd, _curMsgKey)
+        : { enable: new Set(), nat: '', teammateSet: new Set() };
       console.log('[EWC] 应启用', enableSet.size, '条:', [...enableSet].slice(0, 10));
 
       const _jRtChatId  = ewcGetChatId() ?? '_fallback';
       const _joshuaObj  = sd?.约修亚 ?? null;
       const _newJHash   = _joshuaObj ? JSON.stringify(_joshuaObj) : '';
       if (!p._ewcJoshuaRuntimeHash) p._ewcJoshuaRuntimeHash = {};
-      const _jHashChanged = p._ewcJoshuaRuntimeHash[_jRtChatId] !== _newJHash;
+
+      const _chatSwitched = (p._ewcLastJRtChatId !== undefined)
+                         && (p._ewcLastJRtChatId !== _jRtChatId);
+      p._ewcLastJRtChatId = _jRtChatId;
+
+      const _jHashChanged = _chatSwitched || p._ewcJoshuaRuntimeHash[_jRtChatId] !== _newJHash;
       if (_jHashChanged) p._ewcJoshuaRuntimeHash[_jRtChatId] = _newJHash;
       const joshuaRuntimePayload = _jHashChanged
         ? buildJoshuaRuntimeContent(_joshuaObj)  // '' | 叙事快照
         : null;                                  // 哈希未变，跳过
       if (_jHashChanged) {
-        console.log('[EWC] 🕵️ 约修亚 runtime 内容已更新（聊天=' + _jRtChatId + '，内容长度=' + (joshuaRuntimePayload?.length ?? 0) + '）');
+        console.log('[EWC] 🕵️ 约修亚 runtime 内容已更新（聊天=' + _jRtChatId + ((_chatSwitched && !(_joshuaObj)) ? ' 切换→新聊天' : _chatSwitched ? ' 切换→旧聊天' : '') + '，内容长度=' + (joshuaRuntimePayload?.length ?? 0) + '）');
       }
 
-      const result = await applyToWorldbook(enableSet, joshuaRuntimePayload);
+      const result = await applyToWorldbook(enableSet, joshuaRuntimePayload, _ewcNat, teammateSet);
       const logSummary = result.log.map(l =>
         l.wbName + ' ▲' + l.enabled.length + ' ▼' + l.disabled.length
       ).join(' | ');
       console.log('[EWC] 完成 changed=' + result.totalChanged + (logSummary ? '  ' + logSummary : ''));
-
+      // 将使用的世界书名回显到面板（方便用户确认自动检测结果）
       try {
         const wbEl = p.document.getElementById('ewc-wb-name-display');
         if (wbEl && result.wbNames?.[0]) wbEl.textContent = result.wbNames[0];
@@ -773,11 +798,10 @@ function onSecondaryEvent() {
   _debounceTimer = setTimeout(autoSwitch, 200);
 }
 
-
 function onCharacterChanged() {
   ewcInvalidateWbNameCache();
   if (p._ewcJoshuaRuntimeHash) p._ewcJoshuaRuntimeHash = {};
-  p._ewcLastDoneMsgKey = null;
+  p._ewcLastDoneMsgKey = null;  
   clearTimeout(_debounceTimer);
   _debounceTimer = setTimeout(autoSwitch, 400);
 }
@@ -792,7 +816,6 @@ const SECONDARY_EVENTS = [
   'message_received',           'MESSAGE_RECEIVED',
   'user_message_rendered',      'USER_MESSAGE_RENDERED',
 ];
-
 
 const CHARACTER_EVENTS = [
   'chat_changed', 'CHAT_CHANGED',
@@ -1329,10 +1352,9 @@ async function ewcSyncMvuNativePreset(presetName) {
 
 const CONFIG_BLACKLIST = ['次','血','特','惠','福','利','鹿','量','plus','Plus','PLUS','转','官','0','auto','AUTO','Auto','+'];
 
-// URL 白名单：命中则跳过模型名检测，直接放行
 const CONFIG_URL_WHITELIST = ['siliconflow', 'openrouter', 'ark.cn', 'edgefn', 'qnaigc', 'nvidia', 'baidubce', 'ananbdhdh'];
 
-// URL 黑名单：优先级最高，命中则直接拦截（不再检查白名单/模型名）
+
 const CONFIG_URL_BLACKLIST = ['gemai', 'sta1n', 'chr1', 'iisbo', 'xqiqix', 'chatnewai'];
 
 function ewcCheckModelConfig() {
@@ -1352,7 +1374,7 @@ function ewcCheckModelConfig() {
 
     const apiUrl = ewcGetMainApiUrl().toLowerCase();
     if (CONFIG_URL_BLACKLIST.some(d => apiUrl.includes(d))) {
-      // URL 黑名单优先拦截，直接视为命中
+
       configStatus.textContent = '配置运行正常';
       ewcUpdateBackendCode();
       return true;
@@ -2487,6 +2509,7 @@ function waitForMvu(timeout = 15000, interval = 200) {
   
   function ewcFakeStreamResponse() {
     const enc = new TextEncoder();
+
     const lines = [
       'data: {"id":"ewc0","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}\n\n',
       'data: {"id":"ewc0","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\n',
@@ -2496,6 +2519,7 @@ function waitForMvu(timeout = 15000, interval = 200) {
     const stream = new ReadableStream({
       pull(controller) {
         if (pos < lines.length) {
+
           controller.enqueue(enc.encode(lines[pos++]));
         } else {
           controller.close();
@@ -2543,7 +2567,6 @@ function waitForMvu(timeout = 15000, interval = 200) {
       })();
       const isMainBlocked = !!mainModel && CONFIG_BLACKLIST.some(kw => mainModel.includes(kw));
 
-      // ── MVU 额外模型检测 ──
       const mvuModel = ewcGetMvuCfg()?.额外模型解析配置?.模型名称 || '';
       const isMvuBlocked = !!mvuModel && CONFIG_BLACKLIST.some(kw => mvuModel.includes(kw));
 
