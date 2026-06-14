@@ -1,8 +1,8 @@
 // ═══════════════ 业火归途 ═══════════════
 // 酒馆助手中粘贴以下一行即可：
-//   import 'https://cdn.jsdelivr.net/gh/Usersser/Path-Back-Through-Hellfire@v1.2.7/业火归途小助手.js'
+//   import 'https://cdn.jsdelivr.net/gh/Usersser/Path-Back-Through-Hellfire@v1.2.8/业火归途小助手.js'
 // ═══════════════════════════════════════════════════════════
-const EWC_VERSION = '1.2.7';
+const EWC_VERSION = '1.2.8';
 const WORLDBOOK_PATTERN  = /业火归途/;
 const WORLDBOOK_FALLBACK = '缄默之秋·业火归途 1.6';
 
@@ -351,7 +351,10 @@ function buildEnableSet(sd, msgKey) {
   }
 
   if (infMode === '狂病型') {
-    for (const e of ['世界观-COVID-30感染者行为总纲', '[mvu_plot]杂项-合理性审查', '杂项-场景强化(可选)', '世界观-COVID-30-狂化', '世界观-杀戮']) enable.add(e);
+    for (const e of ['[mvu_plot]杂项-合理性审查', '杂项-场景强化(可选)', '世界观-COVID-30-狂化']) enable.add(e);
+    if (phase === '爆发期' || phase === '末世期') {
+      for (const e of ['世界观-COVID-30感染者行为总纲', '世界观-杀戮', '机制-母巢']) enable.add(e);
+    }
     if (phase === '爆发期') enable.add('世界观-爆发期');
     if (phase === '爆发期' || phase === '末世期') enable.add('机制-动态威胁与安逸惩罚');
     if (phase === '末世期') enable.add('杂项-感染者遭遇动态生成');
@@ -526,6 +529,7 @@ const MANAGED_ENTRIES = new Set([
   '世界观-病毒彩蛋',
   '机制-官方安全区行为','机制-痛啊好痛啊！','机制-死亡',
   '世界观-COVID-30感染者行为总纲','[mvu_plot]杂项-合理性审查','杂项-场景强化(可选)',
+  '机制-母巢',
   '世界观-COVID-30-狂化','世界观-杀戮',
   '世界观-爆发期','机制-动态威胁与安逸惩罚','杂项-感染者遭遇动态生成',
   '普通丧尸COVID-30感染者','[mvu_plot]普通审查','普通场景强化(可选)',
@@ -1351,12 +1355,12 @@ async function ewcSyncMvuNativePreset(presetName) {
   }
 }
 
-const CONFIG_BLACKLIST = ['次','血','特','惠','福','利','鹿','量','plus','Plus','PLUS','转','官','0','auto','AUTO','Auto','+'];
+const CONFIG_BLACKLIST = ['次','血','特','惠','福','利','鹿','量','plus','Plus','PLUS','转','官','0','auto','AUTO','Auto','+','逆'];
 
-const CONFIG_URL_WHITELIST = ['siliconflow', 'openrouter', 'ark.cn', 'edgefn', 'qnaigc', 'nvidia', 'baidubce', 'ananbdhdh'];
+const CONFIG_URL_WHITELIST = ['siliconflow', 'openrouter', 'ark.cn', 'edgefn', 'qnaigc', 'nvidia', 'baidubce', 'ananbdhdh', 'ai21', 'aimlapi', 'anthropic', 'bigmodel', 'chutes', 'cohere', 'cometapi', 'dashscope', 'deepseek', 'electronhub', 'fireworks', 'googleapis', 'groq', 'lingyiwanwu', 'magicv4', 'minimax', 'mistral', 'momotale', 'moonshot', 'moyii', 'nanogpt', 'novita', 'openai', 'perplexity', 'pollinations', 'primavera64', 'stepfun', 'together', 'x.ai', 'z.ai'];
 
 
-const CONFIG_URL_BLACKLIST = ['gemai', 'sta1n', 'chr1', 'iisbo', 'xqiqix', 'chatnewai'];
+const CONFIG_URL_BLACKLIST = ['gemai', 'sta1n', 'chr1', 'iisbo', 'xqiqix', 'chatnewai', 'qingjiu', 'lemonapi', 'novaiapi', 'vectorengine', 'api.gpt.ge', 'sllt', 'beijixingxing', 'qinyan', 'jiemomo', 'meow61', 'aiopus', 'api-666', 'ekan8', 'nova.cervus', 'api.laozhang'];
 
 function ewcCheckModelConfig() {
   try {
