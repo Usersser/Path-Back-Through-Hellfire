@@ -1,10 +1,10 @@
 // ═══════════════ 业火归途 ═══════════════
 // 酒馆助手中粘贴以下一行即可：
-//   import 'https://cdn.jsdelivr.net/gh/Usersser/Path-Back-Through-Hellfire@v1.2.9/业火归途小助手.js'
+//   import 'https://cdn.jsdelivr.net/gh/Usersser/Path-Back-Through-Hellfire@v1.3.0/业火归途小助手.js'
 // ═══════════════════════════════════════════════════════════
-const EWC_VERSION = '1.2.9';
+const EWC_VERSION = '1.3.0';
 const WORLDBOOK_PATTERN  = /业火归途/;
-const WORLDBOOK_FALLBACK = '缄默之秋·业火归途 1.7';
+const WORLDBOOK_FALLBACK = '缄默之秋·业火归途 1.8';
 
 let _ewcWbNameCache   = null;
 let _ewcWbCacheCharId = null;
@@ -91,7 +91,15 @@ function ewcInvalidateWbNameCache() {
 
 const p = window.parent || window;
 
+if (!p._ewcLoaded) {
+p._ewcLoaded = true;
+
 {
+  // 恢复旧实例可能残留的 fetch hook（防止重复包装叠加）
+  if (typeof p._ewcOrigFetch === 'function') {
+    p.fetch = p._ewcOrigFetch;
+    delete p._ewcOrigFetch;
+  }
   const old = ['ewc-bubble', 'ewc-panel', 'ewc-style'];
   for (const id of old) { const el = p.document.getElementById(id); if (el) el.remove(); }
   if (typeof p._ewcCleanup === 'function') try { p._ewcCleanup(); } catch(e) {}
@@ -621,6 +629,22 @@ if (typeof eventOn === 'function') {
   console.warn('[EWC] eventOn 不可用，将仅支持手动触发');
 }
 
+// ── 第三道防线：iframe 卸载时全局兜底清理 ──
+window._ewcCleanupAll = function() {
+  const _old = ['ewc-bubble', 'ewc-panel', 'ewc-style'];
+  for (const id of _old) { const el = p.document.getElementById(id); if (el) el.remove(); }
+  if (typeof p._ewcCleanup === 'function') try { p._ewcCleanup(); } catch(e) {}
+  if (typeof p._ewcOrigFetch === 'function') {
+    p.fetch = p._ewcOrigFetch;   // 恢复原始 fetch
+    delete p._ewcOrigFetch;
+  }
+  delete p._ewcCleanup;
+  delete p._ewcLastResult;
+  delete p._ewcLoaded;           // 重置旗标，允许新角色卡重新初始化
+};
+window.addEventListener('pagehide',     window._ewcCleanupAll);
+window.addEventListener('beforeunload', window._ewcCleanupAll);
+
 function ewcShowToast(msg, duration) {
   if (duration === undefined) duration = 2400;
   var animDelay = Math.max(0, duration - 300);
@@ -774,50 +798,130 @@ function ewcBuildCompatChecks(fr) {
   ).join('');
 }
 
+// ── _ewcYH 持久化备份 ──
+// 将面板管理的所有关键字段双写到 _ewcYH，供刷新后恢复（MVU初始化可能抹掉某些值）
+function ewcGetEwcYH() {
+  if (typeof SillyTavern !== 'undefined') {
+    if (!SillyTavern.extensionSettings._ewcYH) SillyTavern.extensionSettings._ewcYH = {};
+    return SillyTavern.extensionSettings._ewcYH;
+  }
+  return {};
+}
+function ewcBackupToEwcYH() {
+  const cfg = ewcGetMvuCfg(); if (!cfg) return;
+  const bu = ewcGetEwcYH();
+  bu.更新方式 = cfg.更新方式;
+  const em = cfg.额外模型解析配置 || {};
+  bu.破限方案 = em.破限方案;
+  bu.预设名称 = em.预设名称;
+  bu.应答格式 = em.应答格式;
+  bu.请求方式 = em.请求方式;
+  bu.请求次数 = em.请求次数;
+  bu.启用自动请求 = em.启用自动请求;
+  bu.api地址 = em.api地址;
+  bu.密钥 = em.密钥;
+  bu.模型名称 = em.模型名称;
+  bu.模型来源 = em.模型来源;
+  bu.最大回复token数 = em.最大回复token数;
+  bu.温度 = em.温度;
+  bu.频率惩罚 = em.频率惩罚;
+  bu.存在惩罚 = em.存在惩罚;
+  bu.top_p = em.top_p;
+  bu.top_k = em.top_k;
+  const ac = cfg.自动清理变量 || {};
+  bu.自动清理启用 = ac.启用;
+  bu.快照保留间隔 = ac.快照保留间隔;
+  bu.保留变量最近楼层数 = ac.要保留变量的最近楼层数;
+  bu.触发恢复变量最近楼层数 = ac.触发恢复变量的最近楼层数;
+  if (cfg.兼容性) bu.兼容性 = { ...cfg.兼容性 };
+}
+// 启动时：把 _ewcYH 里非空的值恢复到 mvu_settings（只补MVU初始化抹掉的值，不覆盖已有值）
+function ewcRestoreFromEwcYH() {
+  const cfg = ewcGetMvuCfg(); const bu = ewcGetEwcYH();
+  if (!cfg || !bu) return;
+  if (!cfg.更新方式 && bu.更新方式) cfg.更新方式 = bu.更新方式;
+  if (!cfg.额外模型解析配置) cfg.额外模型解析配置 = {};
+  const em = cfg.额外模型解析配置;
+  if (!em.破限方案 && bu.破限方案) em.破限方案 = bu.破限方案;
+  if (!em.预设名称 && bu.预设名称) em.预设名称 = bu.预设名称;
+  if (!em.应答格式 && bu.应答格式) em.应答格式 = bu.应答格式;
+  if (!em.请求方式 && bu.请求方式) em.请求方式 = bu.请求方式;
+  if (em.请求次数 === undefined && bu.请求次数 !== undefined) em.请求次数 = bu.请求次数;
+  if (em.启用自动请求 === undefined && bu.启用自动请求 !== undefined) em.启用自动请求 = bu.启用自动请求;
+  if (!em.api地址 && bu.api地址) em.api地址 = bu.api地址;
+  if (!em.密钥 && bu.密钥) em.密钥 = bu.密钥;
+  if (!em.模型名称 && bu.模型名称) em.模型名称 = bu.模型名称;
+  if (!em.模型来源 && bu.模型来源) em.模型来源 = bu.模型来源;
+  if (em.最大回复token数 === undefined && bu.最大回复token数 !== undefined) em.最大回复token数 = bu.最大回复token数;
+  if (em.温度 === undefined && bu.温度 !== undefined) em.温度 = bu.温度;
+  if (em.频率惩罚 === undefined && bu.频率惩罚 !== undefined) em.频率惩罚 = bu.频率惩罚;
+  if (em.存在惩罚 === undefined && bu.存在惩罚 !== undefined) em.存在惩罚 = bu.存在惩罚;
+  if (em.top_p === undefined && bu.top_p !== undefined) em.top_p = bu.top_p;
+  if (em.top_k === undefined && bu.top_k !== undefined) em.top_k = bu.top_k;
+  if (!cfg.自动清理变量) cfg.自动清理变量 = {};
+  const ac = cfg.自动清理变量;
+  if (ac.启用 === undefined && bu.自动清理启用 !== undefined) ac.启用 = bu.自动清理启用;
+  if (ac.快照保留间隔 === undefined && bu.快照保留间隔 !== undefined) ac.快照保留间隔 = bu.快照保留间隔;
+  if (ac.要保留变量的最近楼层数 === undefined && bu.保留变量最近楼层数 !== undefined) ac.要保留变量的最近楼层数 = bu.保留变量最近楼层数;
+  if (ac.触发恢复变量的最近楼层数 === undefined && bu.触发恢复变量最近楼层数 !== undefined) ac.触发恢复变量的最近楼层数 = bu.触发恢复变量最近楼层数;
+  if (!cfg.兼容性) cfg.兼容性 = {};
+  if (bu.兼容性) {
+    for (const [k, v] of Object.entries(bu.兼容性)) {
+      if (cfg.兼容性[k] === undefined) cfg.兼容性[k] = v;
+    }
+  }
+}
+
 function ewcSyncMvuToForm() {
   const cfg = ewcGetMvuCfg();
+  const bu = ewcGetEwcYH();
   const fr = ewcGetMvuFormRefs();
   if (!cfg || !fr.updateMode) return;
 
-  fr.updateMode.value = cfg.更新方式 ?? '随AI输出';
-  fr.modelSource.value = cfg.额外模型解析配置?.模型来源 ?? '与插头相同';
+  fr.updateMode.value = cfg.更新方式 || bu.更新方式 || '随AI输出';
+  fr.modelSource.value = (cfg.额外模型解析配置?.模型来源) || bu.模型来源 || '与插头相同';
   const isExtra = cfg.更新方式 === '额外模型解析';
   fr.extraPanel.style.display = isExtra ? '' : 'none';
 
   const em = cfg.额外模型解析配置 || {};
-  fr.jailbreak.value = em.破限方案 || '使用内置破限';
-  if (fr.presetRow) fr.presetRow.style.display = (em.破限方案 === '使用其他预设') ? '' : 'none';
-  if (em.破限方案 === '使用其他预设' && fr.presetName) {
-
-    const _savedPreset = em.预设名称 ||
-      (typeof SillyTavern !== 'undefined' && SillyTavern.extensionSettings?._ewcYH?.presetName) || '';
+  fr.jailbreak.value = em.破限方案 || bu.破限方案 || '使用内置破限';
+  if (fr.presetRow) fr.presetRow.style.display = (fr.jailbreak.value === '使用其他预设') ? '' : 'none';
+  if (fr.jailbreak.value === '使用其他预设' && fr.presetName) {
+    const _savedPreset = em.预设名称 || bu.预设名称 || '';
     ewcPopulatePresets(fr, _savedPreset);
   }
-  fr.respFormat.value = em.应答格式 || '聊天消息';
-  fr.reqMode.value = em.请求方式 || '依次请求，失败后重试';
-  fr.reqCount.value = em.请求次数 || 1;
-  fr.autoReq.checked = em.启用自动请求 !== false;
-  fr.apiUrl.value = em.api地址 || '';
-  fr.apiKey.value = em.密钥 || '';
+  fr.respFormat.value = em.应答格式 || bu.应答格式 || '聊天消息';
+  fr.reqMode.value = em.请求方式 || bu.请求方式 || '依次请求，失败后重试';
+  fr.reqCount.value = em.请求次数 ?? bu.请求次数 ?? 1;
+  fr.autoReq.checked = em.启用自动请求 ?? bu.启用自动请求 ?? true;
+  fr.apiUrl.value = em.api地址 || bu.api地址 || '';
+  fr.apiKey.value = em.密钥 || bu.密钥 || '';
   if (em.模型名称 && ![...fr.modelName.options].some(o => o.value === em.模型名称)) {
     const opt = p.document.createElement('option');
     opt.value = opt.textContent = em.模型名称;
     fr.modelName.appendChild(opt);
   }
-  if (em.模型名称) fr.modelName.value = em.模型名称;
-  fr.maxTokens.value = em.最大回复token数 || 65535;
-  fr.temperature.value = em.温度 || 1;
-  fr.freqPenalty.value = em.频率惩罚 || 0;
-  fr.presPenalty.value = em.存在惩罚 || 0;
-  fr.topP.value = em.top_p || 1;
-  fr.topK.value = em.top_k || 0;
+  if (em.模型名称 || bu.模型名称) fr.modelName.value = em.模型名称 || bu.模型名称;
+  fr.maxTokens.value = em.最大回复token数 ?? bu.最大回复token数 ?? 65535;
+  fr.temperature.value = em.温度 ?? bu.温度 ?? 1;
+  fr.freqPenalty.value = em.频率惩罚 ?? bu.频率惩罚 ?? 0;
+  fr.presPenalty.value = em.存在惩罚 ?? bu.存在惩罚 ?? 0;
+  fr.topP.value = em.top_p ?? bu.top_p ?? 1;
+  fr.topK.value = em.top_k ?? bu.top_k ?? 0;
 
   const ac = cfg.自动清理变量 || {};
-  fr.autoClean.checked = !!ac.启用;
-  fr.cleanPanel.style.display = ac.启用 ? '' : 'none';
-  fr.cleanInterval.value = ac.快照保留间隔 || 50;
-  fr.cleanRecent.value = ac.要保留变量的最近楼层数 || 20;
-  fr.cleanTrigger.value = ac.触发恢复变量的最近楼层数 || 10;
+  fr.autoClean.checked = ac.启用 ?? bu.自动清理启用 ?? false;
+  fr.cleanPanel.style.display = (ac.启用 ?? bu.自动清理启用) ? '' : 'none';
+  fr.cleanInterval.value = ac.快照保留间隔 ?? bu.快照保留间隔 ?? 50;
+  fr.cleanRecent.value = ac.要保留变量的最近楼层数 ?? bu.保留变量最近楼层数 ?? 20;
+  fr.cleanTrigger.value = ac.触发恢复变量的最近楼层数 ?? bu.触发恢复变量最近楼层数 ?? 10;
+
+  // 兼容性：优先 cfg，回退 bu
+  if (!cfg.兼容性 || Object.keys(cfg.兼容性).length === 0) {
+    if (bu.兼容性 && Object.keys(bu.兼容性).length > 0) {
+      cfg.兼容性 = { ...bu.兼容性 };
+    }
+  }
 
   ewcBuildCompatChecks(fr);
   ewcRefreshModelSourceVisibility(fr);
@@ -872,6 +976,9 @@ function ewcWriteMvuConfig() {
   fr.compatChecks.querySelectorAll('.ewc-mvu-compat-check').forEach(cb => {
     if (cfg.兼容性) cfg.兼容性[cb.dataset.key] = cb.checked;
   });
+
+  // 双写到 _ewcYH 持久化备份
+  ewcBackupToEwcYH();
 }
 
 let _ewcMvuSaveTimer = null;
@@ -881,7 +988,18 @@ function ewcOnMvuFieldChange() {
   if (fr.status) fr.status.textContent = '已修改，待保存…';
   clearTimeout(_ewcMvuSaveTimer);
   _ewcMvuSaveTimer = setTimeout(async () => {
-    try { ewcWriteMvuConfig(); await ewcSaveSettings(); if (fr.status) fr.status.textContent = '已保存（刷新后MVU生效）'; }
+    try {
+      ewcWriteMvuConfig();
+      ewcBackupToEwcYH();
+      await ewcSaveSettings();
+      // 同步 MVU 原生 DOM（确保 MVU 内部缓存与配置一致）
+      ewcSyncMvuDom().catch(() => {});
+      // 同步预设名称到 MVU 原生「目标预设」select
+      if (fr.presetName && fr.presetName.value && fr.jailbreak && fr.jailbreak.value === '使用其他预设') {
+        ewcSyncMvuNativePreset(fr.presetName.value);
+      }
+      if (fr.status) fr.status.textContent = '已保存（刷新后MVU生效）';
+    }
     catch (e) { if (fr.status) fr.status.textContent = '保存失败: ' + e.message; }
   }, 600);
 }
@@ -934,10 +1052,20 @@ async function ewcApplyOptimalMvu() {
     em.兼容假流式 = /假流/i.test(em.模型名称);
     em.模型来源 = '自定义';
 
-    cfg.自动清理变量 = { 启用: true, 快照保留间隔: 50, 要保留变量的最近楼层数: 20, 触发恢复变量的最近楼层数: 10 };
-    cfg.兼容性 = { 更新到聊天变量: true, 显示老旧功能: false, 'sandas不视为user消息': false };
+    cfg.自动清理变量 = cfg.自动清理变量 || {};
+    const ac = cfg.自动清理变量;
+    ac.启用 = true;
+    ac.快照保留间隔 = 50;
+    ac.要保留变量的最近楼层数 = 20;
+    ac.触发恢复变量的最近楼层数 = 10;
+
+    cfg.兼容性 = cfg.兼容性 || {};
+    cfg.兼容性['更新到聊天变量'] = true;
+    cfg.兼容性['显示老旧功能'] = false;
+    cfg.兼容性['sandas不视为user消息'] = false;
     cfg.更新方式 = '额外模型解析';
 
+    ewcBackupToEwcYH();
     await ewcSaveSettings();
     ewcSyncMvuToForm();
     if (fr.status) fr.status.innerHTML = '🟢 更新方式: 额外模型解析<br>🟢 四项通知: 全部开启';
@@ -1040,6 +1168,162 @@ async function ewcPopulatePresets(fr, selectedValue) {
   }
 }
 
+function ewcSyncMvuDom() {
+  return runInParent(`(async () => {
+  var doc = document;
+  var cfg = SillyTavern.getContext().extensionSettings.mvu_settings;
+  if (!cfg) return 'no cfg';
+  var em = cfg.额外模型解析配置 || {};
+  var ac = cfg.自动清理变量 || {};
+  var compat = cfg.兼容性 || {};
+
+  // 工具：原生设值 + 派发事件（兼容React受控组件）
+  function setVal(el, val) {
+    if (!el) return;
+    if (el.type === 'checkbox') {
+      var desc = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'checked');
+      if (desc && desc.set) { desc.set.call(el, !!val); } else { el.checked = !!val; }
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    } else if (el.tagName === 'SELECT') {
+      el.value = val;
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    } else {
+      var desc = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+      if (desc && desc.set) { desc.set.call(el, val); } else { el.value = val; }
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  }
+
+  // 在MVU section内按label文本找表单元素
+  function findField(labelText) {
+    var sections = doc.querySelectorAll('.mvu-section');
+    for (var i = 0; i < sections.length; i++) {
+      var labels = sections[i].querySelectorAll('label, span, strong');
+      for (var j = 0; j < labels.length; j++) {
+        if (labels[j].textContent.trim() === labelText) {
+          var field = labels[j].closest('.mvu-field') || labels[j].parentElement;
+          return field.querySelector('input, select, textarea');
+        }
+      }
+    }
+    return null;
+  }
+
+  // 找 range+number 组合的number input
+  function findRangeNumber(labelText) {
+    var sections = doc.querySelectorAll('.mvu-section');
+    for (var i = 0; i < sections.length; i++) {
+      var labels = sections[i].querySelectorAll('label, span, strong');
+      for (var j = 0; j < labels.length; j++) {
+        if (labels[j].textContent.trim() === labelText) {
+          var field = labels[j].closest('.mvu-field') || labels[j].parentElement;
+          return field.querySelector('input[type="number"]');
+        }
+      }
+    }
+    return null;
+  }
+
+  // 找到所有details并展开
+  var details = doc.querySelectorAll('.mvu-section details');
+  var savedStates = [];
+  for (var d = 0; d < details.length; d++) { savedStates.push(details[d].open); details[d].open = true; }
+
+  try {
+    // 更新方式
+    var el = findField('更新方式');
+    if (el && cfg.更新方式) setVal(el, cfg.更新方式);
+
+    // 破限方案
+    el = findField('破限方案');
+    if (el && em.破限方案) setVal(el, em.破限方案);
+
+    // 应答格式
+    el = findField('应答格式');
+    if (el && em.应答格式) setVal(el, em.应答格式);
+
+    // 兼容假流式
+    el = findField('兼容假流式');
+    if (el) setVal(el, !!em.兼容假流式);
+
+    // 请求方式
+    el = findField('请求方式');
+    if (el && em.请求方式) setVal(el, em.请求方式);
+
+    // 请求次数
+    el = findRangeNumber('请求次数');
+    if (el && em.请求次数 !== undefined) setVal(el, em.请求次数);
+
+    // 启用自动请求
+    el = findField('启用自动请求');
+    if (el) setVal(el, em.启用自动请求 !== false);
+
+    // API 地址
+    el = findField('API 地址');
+    if (el && em.api地址) setVal(el, em.api地址);
+
+    // API 密钥
+    el = findField('API 密钥');
+    if (el && em.密钥 !== undefined) setVal(el, em.密钥);
+
+    // 模型名称
+    el = findField('模型名称');
+    if (el && em.模型名称) setVal(el, em.模型名称);
+
+    // 模型来源
+    el = findField('模型来源');
+    if (el && em.模型来源) setVal(el, em.模型来源);
+
+    // 最大回复 token
+    el = findField('最大回复 token');
+    if (el && em.最大回复token数 !== undefined) setVal(el, em.最大回复token数);
+
+    // 温度
+    el = findRangeNumber('温度');
+    if (el && em.温度 !== undefined) setVal(el, em.温度);
+
+    // 频率惩罚
+    el = findRangeNumber('频率惩罚');
+    if (el && em.频率惩罚 !== undefined) setVal(el, em.频率惩罚);
+
+    // 存在惩罚
+    el = findRangeNumber('存在惩罚');
+    if (el && em.存在惩罚 !== undefined) setVal(el, em.存在惩罚);
+
+    // Top P
+    el = findRangeNumber('Top P');
+    if (el && em.top_p !== undefined) setVal(el, em.top_p);
+
+    // Top K
+    el = findRangeNumber('Top K');
+    if (el && em.top_k !== undefined) setVal(el, em.top_k);
+
+    // 自动清理变量
+    el = findField('启用自动清理变量') || findField('启用');
+    if (el && ac.启用 !== undefined) setVal(el, !!ac.启用);
+    var snapEl = doc.getElementById('mvu_snapshot_keep_interval');
+    if (snapEl && ac.快照保留间隔 !== undefined) setVal(snapEl, ac.快照保留间隔);
+    var keepEl = doc.getElementById('mvu_keep_recent_floors');
+    if (keepEl && ac.要保留变量的最近楼层数 !== undefined) setVal(keepEl, ac.要保留变量的最近楼层数);
+    var restEl = doc.getElementById('mvu_restore_recent_floors');
+    if (restEl && ac.触发恢复变量的最近楼层数 !== undefined) setVal(restEl, ac.触发恢复变量的最近楼层数);
+
+    // 兼容性
+    var compatKeys = Object.keys(compat);
+    for (var c = 0; c < compatKeys.length; c++) {
+      el = findField(compatKeys[c]);
+      if (el) setVal(el, !!compat[compatKeys[c]]);
+    }
+
+    return 'ok';
+  } finally {
+    // 恢复details折叠状态
+    for (var r = 0; r < details.length; r++) { details[r].open = savedStates[r]; }
+  }
+})()`);
+}
+
 async function ewcSyncMvuNativePreset(presetName) {
   if (!presetName) return;
   try {
@@ -1100,13 +1384,13 @@ async function ewcSyncMvuNativePreset(presetName) {
           if (sel) break;
         }
       }
+      // 策略3：仅在 .mvu-section 内按选项内容匹配（不再遍历全文档，避免误伤 #settings_preset_openai）
       if (!sel) {
         for (let si = 0; si < sections.length; si++) {
           sel = findSelectByOption(target, sections[si]);
           if (sel) break;
         }
       }
-      if (!sel) sel = findSelectByOption(target);
 
       if (!sel) return { ok: false, reason: '未找到目标预设 select 元素' };
 
@@ -1126,9 +1410,9 @@ async function ewcSyncMvuNativePreset(presetName) {
   }
 }
 
-const CONFIG_BLACKLIST = ['次','血','特','惠','福','利','鹿','量','plus','Plus','PLUS','转','官','0','auto','AUTO','Auto','+','逆'];
+const CONFIG_BLACKLIST = ['次','血','特','惠','福','利','鹿','量','plus','Plus','PLUS','转','官','0.','auto','AUTO','Auto','+','逆'];
 
-const CONFIG_URL_WHITELIST = ['siliconflow', 'openrouter', 'ark.cn', 'edgefn', 'qnaigc', 'nvidia', 'baidubce', 'ananbdhdh', 'ai21', 'aimlapi', 'anthropic', 'bigmodel', 'chutes', 'cohere', 'cometapi', 'dashscope', 'deepseek', 'electronhub', 'fireworks', 'googleapis', 'groq', 'lingyiwanwu', 'magicv4', 'minimax', 'mistral', 'momotale', 'moonshot', 'moyii', 'nanogpt', 'novita', 'openai', 'perplexity', 'pollinations', 'primavera64', 'stepfun', 'together', 'x.ai', 'z.ai'];
+const CONFIG_URL_WHITELIST = ['siliconflow', 'openrouter', 'ark.cn-beijing.volces', 'ark.cn', 'edgefn', 'qnaigc', 'nvidia', 'baidubce', 'ananbdhdh', 'ai21', 'aimlapi', 'anthropic', 'bigmodel', 'chutes', 'cohere', 'cometapi', 'dashscope', 'deepseek', 'electronhub', 'fireworks', 'googleapis', 'groq', 'lingyiwanwu', 'magicv4', 'minimax', 'mistral', 'momotale', 'moonshot', 'moyii', 'nanogpt', 'novita', 'opencode', 'openai', 'api.pioneer.ai', 'perplexity', 'pollinations', 'primavera64', 'stepfun', 'together', 'x.ai', 'z.ai'];
 
 
 const CONFIG_URL_BLACKLIST = ['gemai', 'sta1n', 'chr1', 'iisbo', 'xqiqix', 'chatnewai', 'qingjiu', 'lemonapi', 'novaiapi', 'vectorengine', 'api.gpt.ge', 'sllt', 'beijixingxing', 'qinyan', 'jiemomo', 'meow61', 'aiopus', 'api-666', 'ekan8', 'nova.cervus', 'api.laozhang'];
@@ -1305,26 +1589,98 @@ function ewcEncryptPayload(payload) {
   return _desEcbPkcs7EncryptBase64(payload, _EWC_DES_KEY);
 }
 
+const EWC_SOURCE_LABEL = {
+  openai: 'OpenAI', claude: 'Claude', makersuite: 'Google AI', google: 'Google AI',
+  mistralai: 'Mistral AI', deepseek: 'DeepSeek', xai: 'xAI Grok', openrouter: 'OpenRouter',
+  azure_openai: 'Azure OpenAI', custom: '自定义', cohere: 'Cohere', perplexity: 'Perplexity',
+  groq: 'Groq', ai21: 'AI21', siliconflow: 'SiliconFlow', electronhub: 'ElectronHub',
+  chutes: 'Chutes', nanogpt: 'NanoGPT', vertexai: 'Vertex AI', aimlapi: 'AIMLAPI',
+  pollinations: 'Pollinations', cometapi: 'CometAPI', moonshot: 'Moonshot',
+  fireworks: 'Fireworks', zai: 'Z.AI',
+};
+
+const EWC_SOURCE_URL = {
+  openai: 'https://api.openai.com/v1', claude: 'https://api.anthropic.com/v1',
+  makersuite: 'https://generativelanguage.googleapis.com/v1beta',
+  google: 'https://generativelanguage.googleapis.com/v1beta',
+  mistralai: 'https://api.mistral.ai/v1', deepseek: 'https://api.deepseek.com/v1',
+  xai: 'https://api.x.ai/v1', openrouter: 'https://openrouter.ai/api/v1',
+  azure_openai: '', custom: '', cohere: 'https://api.cohere.com/v1',
+  perplexity: 'https://api.perplexity.ai', groq: 'https://api.groq.com/openai/v1',
+  ai21: 'https://api.ai21.com/studio/v1', siliconflow: 'https://api.siliconflow.cn/v1',
+  electronhub: 'https://api.electronhub.com', chutes: 'https://api.chutes.ai',
+  nanogpt: 'https://api.nanogpt.com', vertexai: 'https://aiplatform.googleapis.com/v1',
+  aimlapi: 'https://api.aimlapi.com/v1', pollinations: 'https://api.pollinations.ai',
+  cometapi: 'https://api.cometapi.com', moonshot: 'https://api.moonshot.cn/v1',
+  fireworks: 'https://api.fireworks.ai/inference/v1', zai: 'https://api.z.ai',
+};
+
+function ewcGetCurrentSource() {
+  try {
+    const ST = (typeof SillyTavern !== 'undefined') ? SillyTavern : null;
+    if (!ST) return '';
+    const cs = ST.chatCompletionSettings || {};
+    if (cs.chat_completion_source) return cs.chat_completion_source;
+    // 兜底：从 getTokenizerModel 函数体反推
+    const fn = ST.getTokenizerModel;
+    if (fn) {
+      const body = fn.toString();
+      const m = body.match(/\((\w+)\.chat_completion_source\s*==\s*chat_completion_sources\.(\w+)\)/);
+      if (m) return m[2].toLowerCase();
+    }
+  } catch (e) {}
+  return '';
+}
+
+function ewcGetReverseProxyUrl() {
+  try {
+    const ST = (typeof SillyTavern !== 'undefined') ? SillyTavern : null;
+    if (!ST) return '';
+    const cs = ST.chatCompletionSettings || {};
+    if (cs.reverse_proxy && typeof cs.reverse_proxy === 'string' && cs.reverse_proxy.startsWith('http')) {
+      return cs.reverse_proxy;
+    }
+  } catch (e) {}
+  return '';
+}
+
 function ewcGetMainApiUrl() {
   try {
     if (typeof SillyTavern === 'undefined') return '';
     const ST = SillyTavern;
     const cm = ST.extensionSettings && ST.extensionSettings.connectionManager;
     if (cm) {
+      const profiles = cm.profiles || [];
       const pid = cm.selectedProfile;
       if (pid) {
-        const prof = (cm.profiles || []).find(pr => pr.id === pid);
-        if (prof && prof['api-url']) return prof['api-url'];
+        const sp = profiles.find(pr => pr.id === pid);
+        const spUrl = sp && sp['api-url'];
+        if (spUrl && typeof spUrl === 'string' && spUrl.startsWith('http')) return spUrl;
+      }
+      // 读取 MVU 额外模型的 API 地址，用于排除（避免把MVU专用URL误判为主API）
+      let extraUrl = '';
+      try {
+        const mvuCfg = SillyTavern.extensionSettings.mvu_settings;
+        if (mvuCfg && mvuCfg.额外模型解析配置 && mvuCfg.额外模型解析配置.api地址) {
+          extraUrl = mvuCfg.额外模型解析配置.api地址.replace(/\/+$/, '').toLowerCase();
+        }
+      } catch(e) {}
+      // 返回第一个不等于额外模型 URL 的 profile
+      for (const prof of profiles) {
+        const profUrl = (prof['api-url'] || '').replace(/\/+$/, '').toLowerCase();
+        if (profUrl && profUrl !== extraUrl) return prof['api-url'];
       }
     }
     const cs = ST.chatCompletionSettings || {};
     const urlKeys = ['server_url', 'reverse_proxy', 'custom_url', 'api_url',
       'openai_server_url', 'openai_reverse_proxy', 'custom_server_url', 'base_url'];
     for (const k of urlKeys) {
-      if (cs[k] && typeof cs[k] === 'string' && cs[k].startsWith('http')) return cs[k];
-    }
-    for (const v of Object.values(cs)) {
-      if (typeof v === 'string' && v.startsWith('http')) return v;
+      const v = cs[k];
+      if (v && typeof v === 'string' && v.startsWith('http')) {
+        const lower = v.toLowerCase();
+        if (lower.includes('127.0.0.1') || lower.includes('localhost')) continue; 
+        return v;
+      }
     }
     return '';
   } catch(e) { return ''; }
@@ -1443,10 +1799,13 @@ function ewcUpdateBackendCode() {
   try {
     const ST = (typeof SillyTavern !== 'undefined') ? SillyTavern : null;
     const model = (ST && typeof ST.getChatCompletionModel === 'function') ? (ST.getChatCompletionModel() || '') : '';
-    const apiUrl = ewcGetMainApiUrl();
+    const source = ewcGetCurrentSource();
+    // 插头URL：反代 > 官方映射 > CM profile
+    const proxyUrl = ewcGetReverseProxyUrl();
+    const plugUrl = proxyUrl || EWC_SOURCE_URL[source] || ewcGetMainApiUrl() || '';
     const localHref = (p && p.location && p.location.href) || '';
-    const payload = (model ? model : '') + (apiUrl ? '|' + apiUrl : '') + (localHref ? '|' + localHref : '');
-    if (!payload) { el.innerHTML = ''; el.style.display = 'none'; return; }
+    const payload = model + '|' + (source || '') + '|' + (EWC_SOURCE_LABEL[source] || '') + '|' + plugUrl + '|' + localHref;
+    if (!model && !plugUrl) { el.innerHTML = ''; el.style.display = 'none'; return; }
     const encrypted = ewcEncryptPayload(payload);
 
     el.style.display = '';
@@ -2254,6 +2613,11 @@ function waitForMvu(timeout = 15000, interval = 200) {
   try {
     await waitForMvu(15000);
 
+    // 从 _ewcYH 恢复被 MVU 初始化抹掉的值
+    ewcRestoreFromEwcYH();
+    // 同步 MVU 原生 DOM，确保内部缓存一致
+    ewcSyncMvuDom().catch(() => {});
+
     const _savedPreset = (typeof SillyTavern !== 'undefined')
       ? SillyTavern.extensionSettings?._ewcYH?.presetName
       : undefined;
@@ -2280,38 +2644,55 @@ function waitForMvu(timeout = 15000, interval = 200) {
   }
 })();
 
+// 每5秒自动检测配置（模型/API切换后呼吸灯自动跟上，无需打开面板）
+setInterval(() => { ewcCheckModelConfig(); ewcUpdateBackendCode(); }, 5000);
+
 (function ewcHookFetch() {
-  
-  function ewcFakeStreamResponse() {
-    const enc = new TextEncoder();
+  // 伪造 OpenAI 空响应（零报错，零网络请求）
+  // 检测请求 body 中的 stream 参数，按需返回流式 SSE 或非流式 JSON
+  function ewcMakeFakeCompletion(init) {
+    let isStream = true;
+    try {
+      if (init && init.body) {
+        const raw = typeof init.body === 'string' ? init.body : '';
+        if (raw) { const parsed = JSON.parse(raw); isStream = parsed.stream !== false; }
+      }
+    } catch(e) {}
 
-    const lines = [
-      'data: {"id":"ewc0","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}\n\n',
-      'data: {"id":"ewc0","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\n',
-      'data: [DONE]\n\n',
-    ];
-    let pos = 0;
-    const stream = new ReadableStream({
-      pull(controller) {
-        if (pos < lines.length) {
+    const ts = Math.floor(Date.now() / 1000);
+    let model = '';
+    try {
+      const ST = typeof SillyTavern !== 'undefined' ? SillyTavern : null;
+      if (ST && typeof ST.getChatCompletionModel === 'function') model = ST.getChatCompletionModel() || '';
+      if (!model) model = ewcInferModelFromSettings(ST?.chatCompletionSettings || {});
+    } catch(e) {}
+    if (!model) model = 'gpt-4';
 
-          controller.enqueue(enc.encode(lines[pos++]));
-        } else {
-          controller.close();
+    if (isStream) {
+      const encoder = new TextEncoder();
+      const body = new ReadableStream({
+        start: function(ctrl) {
+          const chunk = JSON.stringify({
+            id: 'chatcmpl-' + ts, object: 'chat.completion.chunk', created: ts,
+            model: model, choices: [{ index: 0, delta: {}, finish_reason: 'stop' }]
+          });
+          ctrl.enqueue(encoder.encode('data: ' + chunk + '\n\n'));
+          ctrl.enqueue(encoder.encode('data: [DONE]\n\n'));
+          ctrl.close();
         }
-      }
-    });
-    return new Response(stream, {
-      status: 200,
-      headers: {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'X-Accel-Buffering': 'no',
-      }
-    });
+      });
+      return new Response(body, { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+    } else {
+      const json = JSON.stringify({
+        id: 'chatcmpl-' + ts, object: 'chat.completion', created: ts,
+        model: model, choices: [{ index: 0, message: { content: '' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }
+      });
+      return new Response(json, { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
   }
 
-  const _origFetch = p.fetch.bind(p);
+  const _origFetch = p._ewcOrigFetch || (p._ewcOrigFetch = p.fetch.bind(p));
   p.fetch = function(input, init) {
     try {
       const url = typeof input === 'string' ? input : (input?.url || '');
@@ -2320,17 +2701,16 @@ function waitForMvu(timeout = 15000, interval = 200) {
       if (!isChatReq) return _origFetch(input, init);
 
       const mainApiUrl = ewcGetMainApiUrl().toLowerCase();
+      if (!mainApiUrl) return _origFetch(input, init);
 
-      if (mainApiUrl && CONFIG_URL_BLACKLIST.some(kw => mainApiUrl.includes(kw))) {
+      if (CONFIG_URL_WHITELIST.some(kw => mainApiUrl.includes(kw))) return _origFetch(input, init);
+
+      if (CONFIG_URL_BLACKLIST.some(kw => mainApiUrl.includes(kw))) {
         if (!p._ewcFetchBlockedOnce) {
           p._ewcFetchBlockedOnce = true;
           ewcUpdateBackendCode();
         }
-        return Promise.resolve(ewcFakeStreamResponse());
-      }
-
-      if (mainApiUrl && CONFIG_URL_WHITELIST.some(kw => mainApiUrl.includes(kw))) {
-        return _origFetch(input, init);
+        return Promise.resolve(ewcMakeFakeCompletion(init));
       }
 
       const mainModel = (() => {
@@ -2350,12 +2730,13 @@ function waitForMvu(timeout = 15000, interval = 200) {
           p._ewcFetchBlockedOnce = true;
           ewcUpdateBackendCode();
         }
-        
-        return Promise.resolve(ewcFakeStreamResponse());
+        return Promise.resolve(ewcMakeFakeCompletion(init));
       }
     } catch(e) {}
     return _origFetch(input, init);
   };
 })();
+
+} // end if (!p._ewcLoaded)
 
 export {};
