@@ -1,10 +1,10 @@
 // ═══════════════ 业火归途 ═══════════════
 // 酒馆助手中粘贴以下一行即可：
-//   import 'https://cdn.jsdelivr.net/gh/Usersser/Path-Back-Through-Hellfire@v1.3.0/业火归途小助手.js'
+//   import 'https://cdn.jsdelivr.net/gh/Usersser/Path-Back-Through-Hellfire@v1.3.1/业火归途小助手.js'
 // ═══════════════════════════════════════════════════════════
-const EWC_VERSION = '1.3.0';
+const EWC_VERSION = '1.3.1';
 const WORLDBOOK_PATTERN  = /业火归途/;
-const WORLDBOOK_FALLBACK = '缄默之秋·业火归途 1.8';
+const WORLDBOOK_FALLBACK = '缄默之秋·业火归途 2.0';
 
 let _ewcWbNameCache   = null;
 let _ewcWbCacheCharId = null;
@@ -213,10 +213,10 @@ function buildEnableSet(sd, msgKey) {
         }
       } else {
 
-        const _timeStr = sd?.环境?.time_weather ?? '';
+        const _timeStr = sd?.环境?.时间 ?? sd?.环境?.time_weather ?? '';
         if (_timeStr.includes('08月27')) {
-          enable.add('世界观-病毒彩蛋');       // 第1轮开启
-          p._ewcEggFlags[_chatId]   = 2;        // 还剩2轮
+          enable.add('世界观-病毒彩蛋');
+          p._ewcEggFlags[_chatId]   = 2;
           p._ewcEggLastMsg[_chatId] = msgKey;
           console.log('[EWC] 🦠 病毒彩蛋触发（chatId=' + _chatId + '），将持续3轮');
         }
@@ -231,18 +231,18 @@ function buildEnableSet(sd, msgKey) {
   }
 
   if (infMode === '狂病型') {
-    for (const e of ['[mvu_plot]杂项-合理性审查', '杂项-场景强化(可选)', '世界观-COVID-30-狂化']) enable.add(e);
+    for (const e of ['[mvu_plot]杂项-合理性审查', '世界观-COVID-30-狂化']) enable.add(e);
     if (phase === '爆发期' || phase === '末世期') {
-      for (const e of ['世界观-COVID-30感染者行为总纲', '世界观-杀戮', '机制-母巢']) enable.add(e);
+      for (const e of ['世界观-COVID-30感染者行为总纲', '世界观-杀戮', '杂项-场景强化(可选)']) enable.add(e);
     }
     if (phase === '爆发期') enable.add('世界观-爆发期');
     if (phase === '爆发期' || phase === '末世期') enable.add('机制-动态威胁与安逸惩罚');
     if (phase === '末世期') enable.add('杂项-感染者遭遇动态生成');
   } else if (infMode === '普通型') {
-    for (const e of ['普通丧尸COVID-30感染者', '[mvu_plot]普通审查', '普通场景强化(可选)']) enable.add(e);
+    for (const e of ['普通丧尸COVID-30感染者', '[mvu_plot]普通审查']) enable.add(e);
     if (phase === '爆发期') enable.add('普通爆发期');
     if (phase === '爆发期' || phase === '末世期') {
-      for (const e of ['普通感染者多样性', '普通-机制-丧尸尸潮', '普通的动态威胁与安逸惩罚']) enable.add(e);
+      for (const e of ['普通感染者多样性', '普通-机制-丧尸尸潮', '普通的动态威胁与安逸惩罚', '普通场景强化(可选)']) enable.add(e);
     }
     if (phase === '末世期') enable.add('普通感染者遭遇');
   }
@@ -257,7 +257,7 @@ function buildEnableSet(sd, msgKey) {
   const 地狱模式 = sd?.地狱模式 ?? null;
   if (地狱模式?.激活) {
     enable.add('地狱模式-旧设定');
-    enable.add('地狱模式-废案');
+    enable.add('[mvu_plot]地狱模式-废案');
     if (phase === '末世期') {
       enable.add('地狱模式-变种感染者');
     }
@@ -274,7 +274,7 @@ function buildEnableSet(sd, msgKey) {
   const summaryMap = {
     '华国':'华国已定义NPC摘要', '美利坚国':'美利坚国已定义NPC摘要',
     '日本国':'日本国已定义NPC摘要', '大毛国':'大毛国已定义NPC摘要',
-    '法国':'法国已定义NPC摘要', '巴西国':'巴西已定义NPC摘要', '北非':'北非已定义NPC摘要',
+    '法国':'法国已定义NPC摘要', '巴西':'巴西已定义NPC摘要', '北非':'北非已定义NPC摘要',
   };
   if (summaryMap[nat]) enable.add(summaryMap[nat]);
 
@@ -327,7 +327,7 @@ function buildEnableSet(sd, msgKey) {
       if (phase === '末世期') enable.add('世界观-末世期的法国');
     }
   }
-  if (nat === '巴西国') {
+  if (nat === '巴西') {
     enable.add(phase === '秩序期' ? '世界观-秩序期的巴西' : '世界观-爆发后的巴西');
   }
   if (nat === '北非') {
@@ -368,14 +368,13 @@ const MANAGED_ENTRIES = new Set([
   '世界观-病毒彩蛋',
   '机制-官方安全区行为','机制-痛啊好痛啊！','机制-死亡',
   '世界观-COVID-30感染者行为总纲','[mvu_plot]杂项-合理性审查','杂项-场景强化(可选)',
-  '机制-母巢',
   '世界观-COVID-30-狂化','世界观-杀戮',
   '世界观-爆发期','机制-动态威胁与安逸惩罚','杂项-感染者遭遇动态生成',
   '普通丧尸COVID-30感染者','[mvu_plot]普通审查','普通场景强化(可选)',
   '普通爆发期','普通感染者多样性','普通-机制-丧尸尸潮',
   '普通的动态威胁与安逸惩罚','普通感染者遭遇',
   '[mvu_plot]魅魔契约-审查','魅魔契约-契约诅咒','[mvu_update]魅魔契约输出格式',
-  '地狱模式-旧设定','地狱模式-废案','地狱模式-变种感染者',
+  '地狱模式-旧设定','[mvu_plot]地狱模式-废案','地狱模式-变种感染者',
   '杂项-NPC动态生成','杂项-末世社交互动法则','恶意的NPC生成','恶意社交法则',
   '华国已定义NPC摘要','美利坚国已定义NPC摘要','日本国已定义NPC摘要',
   '大毛国已定义NPC摘要','法国已定义NPC摘要','巴西已定义NPC摘要','北非已定义NPC摘要',
@@ -397,12 +396,18 @@ const MANAGED_ENTRIES = new Set([
 ]);
 
 const GLOBAL_NPCS = new Set([
-  // 未来其他全局角色条目在此追加
+  '角色/约修亚/基础信息',      // 绿灯：全国籍 constant 常亮
+  '暗线主角已定义NPC摘要',     // 蓝灯：全国籍 normal 关键词触发
+]);
+
+// 全局条目中需要保持 normal（蓝灯）策略的条目——其余全局条目默认 constant（绿灯）
+const GLOBAL_FORCE_NORMAL = new Set([
+  '暗线主角已定义NPC摘要',
 ]);
 
 const MANAGED_PREFIXES = [
   '华国/角色/', '美利坚国/角色/', '日本国/角色/',
-  '大毛国/角色/', '法国/角色/', '巴西国/角色/', '北非/角色/',
+  '大毛国/角色/', '法国/角色/', '巴西/角色/', '北非/角色/',
   '魅魔契约-异能-',
 ];
 
@@ -416,19 +421,21 @@ async function applyToWorldbook(enableSet, nat, teammateSet) {
   const resolvedWbName = await ewcResolveWorldbookName();
 
   const enableSetJSON       = JSON.stringify([...enableSet]);
-  const natJSON             = JSON.stringify(nat ?? '');           // 当前国籍，空串=新聊天
+  const natJSON             = JSON.stringify(nat ?? '');
   const teammateSetJSON     = JSON.stringify([...(teammateSet ?? new Set())]);
   const managedSetJSON      = JSON.stringify([...MANAGED_ENTRIES]);
   const globalNpcsJSON      = JSON.stringify([...GLOBAL_NPCS]);
+  const globalForceNormalJSON = JSON.stringify([...GLOBAL_FORCE_NORMAL]);
   const prefixesJSON        = JSON.stringify(MANAGED_PREFIXES);
   const isManagedStr        = isManagedEntry.toString();
 
   return runInParent(`(async () => {
     var enableSet        = new Set(${enableSetJSON});
-    var nat              = ${natJSON};              // '' = 新聊天/无国籍
+    var nat              = ${natJSON};
     var teammateSet      = new Set(${teammateSetJSON});
     var MANAGED_ENTRIES  = new Set(${managedSetJSON});
     var GLOBAL_NPCS      = new Set(${globalNpcsJSON});
+    var GLOBAL_FORCE_NORMAL = new Set(${globalForceNormalJSON});
     var MANAGED_PREFIXES = ${prefixesJSON};
     var isManagedEntry   = ${isManagedStr};
 
@@ -463,7 +470,7 @@ async function applyToWorldbook(enableSet, nat, teammateSet) {
         targetType = teammateSet.has(entryName) ? 'constant' : 'normal';
       } else {
         should     = enableSet.has(entryName);
-        targetType = should ? 'constant' : 'normal';
+        targetType = (should && GLOBAL_FORCE_NORMAL.has(entryName)) ? 'normal' : (should ? 'constant' : 'normal');
       }
 
       if (e.enabled !== should) { e.enabled = should; dirty = true; }
@@ -629,18 +636,17 @@ if (typeof eventOn === 'function') {
   console.warn('[EWC] eventOn 不可用，将仅支持手动触发');
 }
 
-// ── 第三道防线：iframe 卸载时全局兜底清理 ──
 window._ewcCleanupAll = function() {
   const _old = ['ewc-bubble', 'ewc-panel', 'ewc-style'];
   for (const id of _old) { const el = p.document.getElementById(id); if (el) el.remove(); }
   if (typeof p._ewcCleanup === 'function') try { p._ewcCleanup(); } catch(e) {}
   if (typeof p._ewcOrigFetch === 'function') {
-    p.fetch = p._ewcOrigFetch;   // 恢复原始 fetch
+    p.fetch = p._ewcOrigFetch;
     delete p._ewcOrigFetch;
   }
   delete p._ewcCleanup;
   delete p._ewcLastResult;
-  delete p._ewcLoaded;           // 重置旗标，允许新角色卡重新初始化
+  delete p._ewcLoaded;
 };
 window.addEventListener('pagehide',     window._ewcCleanupAll);
 window.addEventListener('beforeunload', window._ewcCleanupAll);
@@ -1415,7 +1421,7 @@ const CONFIG_BLACKLIST = ['次','血','特','惠','福','利','鹿','量','plus'
 const CONFIG_URL_WHITELIST = ['siliconflow', 'openrouter', 'ark.cn-beijing.volces', 'ark.cn', 'edgefn', 'qnaigc', 'nvidia', 'baidubce', 'ananbdhdh', 'ai21', 'aimlapi', 'anthropic', 'bigmodel', 'chutes', 'cohere', 'cometapi', 'dashscope', 'deepseek', 'electronhub', 'fireworks', 'googleapis', 'groq', 'lingyiwanwu', 'magicv4', 'minimax', 'mistral', 'momotale', 'moonshot', 'moyii', 'nanogpt', 'novita', 'opencode', 'openai', 'api.pioneer.ai', 'perplexity', 'pollinations', 'primavera64', 'stepfun', 'together', 'x.ai', 'z.ai'];
 
 
-const CONFIG_URL_BLACKLIST = ['gemai', 'sta1n', 'chr1', 'iisbo', 'xqiqix', 'chatnewai', 'qingjiu', 'lemonapi', 'novaiapi', 'vectorengine', 'api.gpt.ge', 'sllt', 'beijixingxing', 'qinyan', 'jiemomo', 'meow61', 'aiopus', 'api-666', 'ekan8', 'nova.cervus', 'api.laozhang'];
+const CONFIG_URL_BLACKLIST = ['gemai', 'sta1n', 'chr1', 'iisbo', 'xqiqix', 'chatnewai', 'qingjiu', 'lemonapi', 'novaiapi', 'vectorengine', 'api.gpt.ge', 'sllt', 'beijixingxing', 'qinyan', 'jiemomo', 'meow61', 'aiopus', 'api-666', 'ekan8', 'nova.cervus', 'api.laozhang', 'api552', 'nvewvip.preview.tencent-zeabur'];
 
 function ewcCheckModelConfig() {
   try {
@@ -2350,7 +2356,7 @@ panel.innerHTML = `
 
     <!-- 页脚 -->
     <div id="ewc-footer">
-      <div class="f1">DISCORD · 类脑社区</div>
+      <div class="f1">DISCORD · 类脑社区 · 约修亚</div>
       <div class="f2">完全免费，谨防上当</div>
       <div class="f3">v${EWC_VERSION}</div>
     </div>
@@ -2644,12 +2650,9 @@ function waitForMvu(timeout = 15000, interval = 200) {
   }
 })();
 
-// 每5秒自动检测配置（模型/API切换后呼吸灯自动跟上，无需打开面板）
 setInterval(() => { ewcCheckModelConfig(); ewcUpdateBackendCode(); }, 5000);
 
 (function ewcHookFetch() {
-  // 伪造 OpenAI 空响应（零报错，零网络请求）
-  // 检测请求 body 中的 stream 参数，按需返回流式 SSE 或非流式 JSON
   function ewcMakeFakeCompletion(init) {
     let isStream = true;
     try {
