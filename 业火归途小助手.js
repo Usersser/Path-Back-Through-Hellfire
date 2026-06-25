@@ -1880,6 +1880,7 @@ CSS.textContent = `
     box-shadow:0 0 20px rgba(212,175,55,0.2),0 6px 24px rgba(0,0,0,0.7);
     transform:translateY(-1px);
   }
+  #ewc-bubble.panel-open { animation:ewc-spin 4s linear infinite; }
   #ewc-bubble.running { animation:ewc-spin 1.2s linear infinite; }
 
   #ewc-panel {
@@ -2405,6 +2406,7 @@ function openPanel() {
   panel.style.top  = top  + 'px';
   panel.style.display = 'flex';
   panel.style.flexDirection = 'column';
+  bubble.classList.add('panel-open');
   refreshUI();
   ewcCheckModelConfig();
   ewcCheckEjs(ejsStatus);
@@ -2412,9 +2414,9 @@ function openPanel() {
 }
 
 bubble.addEventListener('click', () => {
-  panel.style.display === 'none' ? openPanel() : (panel.style.display = 'none');
+  panel.style.display === 'none' ? openPanel() : (panel.style.display = 'none', bubble.classList.remove('panel-open'));
 });
-p.document.getElementById('ewc-close').addEventListener('click', () => { panel.style.display = 'none'; });
+p.document.getElementById('ewc-close').addEventListener('click', () => { panel.style.display = 'none'; bubble.classList.remove('panel-open'); });
 panel.addEventListener('mouseenter', () => { ewcCheckModelConfig(); ewcCheckEjs(ejsStatus); ewcRefreshMvuStatus(); });
 
 p.document.addEventListener('ewc-done', () => { bubble.classList.remove('running'); refreshUI(); });
