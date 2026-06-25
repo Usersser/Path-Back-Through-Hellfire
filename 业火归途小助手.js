@@ -1,8 +1,8 @@
 // ═══════════════ 业火归途 ═══════════════
 // 酒馆助手中粘贴以下一行即可：
-//   import 'https://cdn.jsdelivr.net/gh/Usersser/Path-Back-Through-Hellfire@v1.3.2/业火归途小助手.js'
+//   import 'https://cdn.jsdelivr.net/gh/Usersser/Path-Back-Through-Hellfire@v1.3.1/业火归途小助手.js'
 // ═══════════════════════════════════════════════════════════
-const EWC_VERSION = '1.3.2';
+const EWC_VERSION = '1.3.1';
 const WORLDBOOK_PATTERN  = /业火归途/;
 const WORLDBOOK_FALLBACK = '缄默之秋·业火归途 2.0';
 
@@ -20,7 +20,6 @@ function _ewcGetCurrentCharId() {
 function _ewcNormalizeNameList(raw, callerLabel) {
   if (Array.isArray(raw)) return raw;
   if (raw && typeof raw === 'object') {
-    // 递归收集对象中所有的字符串叶子值
     const names = [];
     function collect(v) {
       if (typeof v === 'string') { names.push(v); return; }
@@ -542,6 +541,7 @@ async function autoSwitch() {
         l.wbName + ' ▲' + l.enabled.length + ' ▼' + l.disabled.length
       ).join(' | ');
       console.log('[EWC] 完成 changed=' + result.totalChanged + (logSummary ? '  ' + logSummary : ''));
+      // 将使用的世界书名回显到面板（方便用户确认自动检测结果）
       try {
         const wbEl = p.document.getElementById('ewc-wb-name-display');
         if (wbEl && result.wbNames?.[0]) wbEl.textContent = result.wbNames[0];
@@ -1385,7 +1385,6 @@ async function ewcSyncMvuNativePreset(presetName) {
           if (sel) break;
         }
       }
-      // 策略3：仅在 .mvu-section 内按选项内容匹配（不再遍历全文档，避免误伤 #settings_preset_openai）
       if (!sel) {
         for (let si = 0; si < sections.length; si++) {
           sel = findSelectByOption(target, sections[si]);
@@ -1622,7 +1621,6 @@ function ewcGetCurrentSource() {
     if (!ST) return '';
     const cs = ST.chatCompletionSettings || {};
     if (cs.chat_completion_source) return cs.chat_completion_source;
-    // 兜底：从 getTokenizerModel 函数体反推
     const fn = ST.getTokenizerModel;
     if (fn) {
       const body = fn.toString();
@@ -1726,19 +1724,16 @@ function ewcEnsurePersistentCode() {
     'cursor:pointer;user-select:none;',
   ].join('');
 
-  // 标签行
   const label = p.document.createElement('div');
   label.style.cssText = 'font-size:9px;color:rgba(224,85,85,0.55);font-weight:700;letter-spacing:1px;margin-bottom:3px;font-family:inherit;';
   label.textContent = '⚠ 报错提示码';
   el.appendChild(label);
 
-  // 码值行
   const codeEl = p.document.createElement('div');
   codeEl.id = 'ewc-persistent-code-val';
   codeEl.style.cssText = 'font-size:9px;color:rgba(224,85,85,0.75);word-break:break-all;line-height:1.5;font-family:inherit;';
   el.appendChild(codeEl);
 
-  // 复制提示行
   const hint = p.document.createElement('div');
   hint.id = 'ewc-persistent-code-hint';
   hint.style.cssText = 'font-size:8.5px;color:rgba(224,85,85,0.35);margin-top:3px;text-align:right;font-family:inherit;';
