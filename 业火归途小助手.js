@@ -1,8 +1,8 @@
 // ═══════════════ 业火归途 ═══════════════
 // 酒馆助手中粘贴以下一行即可：
-//   import 'https://cdn.jsdelivr.net/gh/Usersser/Path-Back-Through-Hellfire@v1.3.1/业火归途小助手.js'
+//   import 'https://cdn.jsdelivr.net/gh/Usersser/Path-Back-Through-Hellfire@v1.3.2/业火归途小助手.js'
 // ═══════════════════════════════════════════════════════════
-const EWC_VERSION = '1.3.1';
+const EWC_VERSION = '1.3.2';
 const WORLDBOOK_PATTERN  = /业火归途/;
 const WORLDBOOK_FALLBACK = '缄默之秋·业火归途 2.0';
 
@@ -95,7 +95,6 @@ if (!p._ewcLoaded) {
 p._ewcLoaded = true;
 
 {
-  // 恢复旧实例可能残留的 fetch hook（防止重复包装叠加）
   if (typeof p._ewcOrigFetch === 'function') {
     p.fetch = p._ewcOrigFetch;
     delete p._ewcOrigFetch;
@@ -184,6 +183,7 @@ function buildEnableSet(sd, msgKey) {
       '杂项-搜刮结果动态生成', '杂项-幸存者NPC关系推进',
       '世界观-宇航员们（彩蛋）', '世界观-外星人(彩蛋)',
       '机制-搜刮物资', '机制-半感染者生存机制', '机制-沉浸式体验', '机制-种田！我要种田！',
+      '机制-天气与地质变化', '机制-感染过后',
     ]) enable.add(e);
     if (phase === '末世期') {
       for (const e of [
@@ -265,7 +265,9 @@ function buildEnableSet(sd, msgKey) {
 
   if (npcMode === '正常型') {
     enable.add('杂项-NPC动态生成');
-    enable.add('杂项-末世社交互动法则');
+    if (phase === '爆发期' || phase === '末世期') {
+      enable.add('杂项-末世社交互动法则');
+    }
   } else if (npcMode === '全员恶人型') {
     enable.add('恶意的NPC生成');
     enable.add('恶意社交法则');
@@ -280,6 +282,7 @@ function buildEnableSet(sd, msgKey) {
 
   if (nat === '华国' && (phase === '爆发期' || phase === '末世期')) {
     enable.add('世界观-无序者-华国血煞团体'); enable.add('世界观-无序者-华国月影团体');
+    enable.add('华国-华国人民解放军行为');
   }
   if (nat === '日本国') {
     enable.add('世界观-日本国暗线');
@@ -311,6 +314,7 @@ function buildEnableSet(sd, msgKey) {
       for (const e of [
         '世界观-统一党爆发后', '世界观-新布尔什维克党爆发后', '世界观-工人钢铁会爆发后',
         '世界观-黑雪势力', '世界观-零度教势力',
+        '世界观-电动实验BMPT(彩蛋)', '世界观-空中飞艇',
       ]) enable.add(e);
       if (phase === '末世期') enable.add('世界观-核爆区域');
     }
@@ -364,6 +368,7 @@ const MANAGED_ENTRIES = new Set([
   '杂项-搜刮结果动态生成','杂项-幸存者NPC关系推进',
   '世界观-宇航员们（彩蛋）','世界观-外星人(彩蛋)',
   '机制-搜刮物资','机制-半感染者生存机制','机制-沉浸式体验','机制-种田！我要种田！',
+  '机制-天气与地质变化','机制-感染过后',
   '世界观-末世期','世界观-COVID-30变体感染者',
   '世界观-病毒彩蛋',
   '机制-官方安全区行为','机制-痛啊好痛啊！','机制-死亡',
@@ -396,12 +401,12 @@ const MANAGED_ENTRIES = new Set([
 ]);
 
 const GLOBAL_NPCS = new Set([
-  '角色/约修亚/基础信息',      // 绿灯：全国籍 constant 常亮
-  '暗线主角已定义NPC摘要',     // 蓝灯：全国籍 normal 关键词触发
+  '暗线主角已定义NPC摘要',      // 蓝灯：全国籍 constant 常亮
+  '角色/约修亚/基础信息',     // 绿灯：全国籍 normal 关键词触发
 ]);
 
-// 全局条目中需要保持 normal（蓝灯）策略的条目——其余全局条目默认 constant（绿灯）
-const GLOBAL_FORCE_NORMAL = new Set([
+// 全局条目中需要保持蓝灯策略的条目——其余全局条目默认 constant（绿灯）
+const GLOBAL_FORCE_constant = new Set([
   '暗线主角已定义NPC摘要',
 ]);
 
@@ -509,9 +514,6 @@ async function autoSwitch() {
     const _ctx = typeof SillyTavern !== 'undefined' ? SillyTavern.getContext?.() : null;
     if (_ctx?.chat?.length != null) _curMsgKey = _ctx.chat.length;
   } catch(e) {}
-  if (_curMsgKey !== null && _curMsgKey === p._ewcLastDoneMsgKey) {
-    return;
-  }
 
 
   if (_runningPromise) {
@@ -546,8 +548,6 @@ async function autoSwitch() {
         if (wbEl && result.wbNames?.[0]) wbEl.textContent = result.wbNames[0];
       } catch(e) {}
 
-
-      p._ewcLastDoneMsgKey = _curMsgKey;
 
       p._ewcLastResult = {
         time: Date.now(), ok: true,
@@ -592,7 +592,6 @@ function onSecondaryEvent() {
 
 function onCharacterChanged() {
   ewcInvalidateWbNameCache();
-  p._ewcLastDoneMsgKey = null;
   clearTimeout(_debounceTimer);
   _debounceTimer = setTimeout(autoSwitch, 400);
 }
@@ -804,8 +803,6 @@ function ewcBuildCompatChecks(fr) {
   ).join('');
 }
 
-// ── _ewcYH 持久化备份 ──
-// 将面板管理的所有关键字段双写到 _ewcYH，供刷新后恢复（MVU初始化可能抹掉某些值）
 function ewcGetEwcYH() {
   if (typeof SillyTavern !== 'undefined') {
     if (!SillyTavern.extensionSettings._ewcYH) SillyTavern.extensionSettings._ewcYH = {};
@@ -841,7 +838,6 @@ function ewcBackupToEwcYH() {
   bu.触发恢复变量最近楼层数 = ac.触发恢复变量的最近楼层数;
   if (cfg.兼容性) bu.兼容性 = { ...cfg.兼容性 };
 }
-// 启动时：把 _ewcYH 里非空的值恢复到 mvu_settings（只补MVU初始化抹掉的值，不覆盖已有值）
 function ewcRestoreFromEwcYH() {
   const cfg = ewcGetMvuCfg(); const bu = ewcGetEwcYH();
   if (!cfg || !bu) return;
@@ -1418,10 +1414,10 @@ async function ewcSyncMvuNativePreset(presetName) {
 
 const CONFIG_BLACKLIST = ['次','血','特','惠','福','利','鹿','量','plus','Plus','PLUS','转','官','0.','auto','AUTO','Auto','+','逆'];
 
-const CONFIG_URL_WHITELIST = ['siliconflow', 'openrouter', 'ark.cn-beijing.volces', 'ark.cn', 'edgefn', 'qnaigc', 'nvidia', 'baidubce', 'ananbdhdh', 'ai21', 'aimlapi', 'anthropic', 'bigmodel', 'chutes', 'cohere', 'cometapi', 'dashscope', 'deepseek', 'electronhub', 'fireworks', 'googleapis', 'groq', 'lingyiwanwu', 'magicv4', 'minimax', 'mistral', 'momotale', 'moonshot', 'moyii', 'nanogpt', 'novita', 'opencode', 'openai', 'api.pioneer.ai', 'perplexity', 'pollinations', 'primavera64', 'stepfun', 'together', 'x.ai', 'z.ai'];
+const CONFIG_URL_WHITELIST = ['siliconflow', 'openrouter', 'ark.cn-beijing.volces', 'ark.cn', 'edgefn', 'qnaigc', 'nvidia', 'baidubce', 'ananbdhdh', 'ai21', 'aimlapi', 'anthropic', 'bigmodel', 'chutes', 'cohere', 'cometapi', 'dashscope', 'deepseek', 'electronhub', 'fireworks', 'gcli.ggchan.dev', 'googleapis', 'groq', 'lingyiwanwu', 'magicv4', 'minimax', 'mistral', 'momotale', 'moonshot', 'moyii', 'nanogpt', 'novita', 'opencode', 'openai', 'api.pioneer.ai', 'perplexity', 'pollinations', 'primavera64', 'stepfun', 'together', 'x.ai', 'z.ai'];
 
 
-const CONFIG_URL_BLACKLIST = ['gemai', 'sta1n', 'chr1', 'iisbo', 'xqiqix', 'chatnewai', 'qingjiu', 'lemonapi', 'novaiapi', 'vectorengine', 'api.gpt.ge', 'sllt', 'beijixingxing', 'qinyan', 'jiemomo', 'meow61', 'aiopus', 'api-666', 'ekan8', 'nova.cervus', 'api.laozhang', 'api552', 'nvewvip.preview.tencent-zeabur'];
+const CONFIG_URL_BLACKLIST = ['gemai', 'sta1n', 'chr1', 'iisbo', 'xqiqix', 'chatnewai', 'qingjiu', 'lemonapi', 'novaiapi', 'vectorengine', 'api.gpt.ge', 'sllt', 'beijixingxing', 'qinyan', 'jiemomo', 'meow61', 'aiopus', 'api-666', 'ekan8', 'nova.cervus', 'api.laozhang', 'ashesb', 'ai.sikong', 'agent.aiflow', 'api552', 'nvewvip.preview.tencent-zeabur'];
 
 function ewcCheckModelConfig() {
   try {
@@ -1663,7 +1659,6 @@ function ewcGetMainApiUrl() {
         const spUrl = sp && sp['api-url'];
         if (spUrl && typeof spUrl === 'string' && spUrl.startsWith('http')) return spUrl;
       }
-      // 读取 MVU 额外模型的 API 地址，用于排除（避免把MVU专用URL误判为主API）
       let extraUrl = '';
       try {
         const mvuCfg = SillyTavern.extensionSettings.mvu_settings;
@@ -1671,7 +1666,6 @@ function ewcGetMainApiUrl() {
           extraUrl = mvuCfg.额外模型解析配置.api地址.replace(/\/+$/, '').toLowerCase();
         }
       } catch(e) {}
-      // 返回第一个不等于额外模型 URL 的 profile
       for (const prof of profiles) {
         const profUrl = (prof['api-url'] || '').replace(/\/+$/, '').toLowerCase();
         if (profUrl && profUrl !== extraUrl) return prof['api-url'];
