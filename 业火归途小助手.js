@@ -1,13 +1,14 @@
 // ═══════════════ 业火归途 ═══════════════
 // 酒馆助手中粘贴以下一行即可：
-//   import 'https://cdn.jsdelivr.net/gh/Usersser/Path-Back-Through-Hellfire@v1.3.3/业火归途小助手.js'
+//   import 'https://cdn.jsdelivr.net/gh/Usersser/Path-Back-Through-Hellfire@v3.0.0/业火归途小助手.js'
 // ═══════════════════════════════════════════════════════════
-const EWC_VERSION = '1.3.3';
+const EWC_VERSION = '3.0.0';
 const WORLDBOOK_PATTERN  = /业火归途/;
-const WORLDBOOK_FALLBACK = '缄默之秋·业火归途 2.0';
+const WORLDBOOK_FALLBACK = '业火归途 3.0';
 
 let _ewcWbNameCache   = null;
 let _ewcWbCacheCharId = null;
+let _ewcPresetCache   = null;
 
 function _ewcGetCurrentCharId() {
   try {
@@ -20,6 +21,7 @@ function _ewcGetCurrentCharId() {
 function _ewcNormalizeNameList(raw, callerLabel) {
   if (Array.isArray(raw)) return raw;
   if (raw && typeof raw === 'object') {
+    
     const names = [];
     function collect(v) {
       if (typeof v === 'string') { names.push(v); return; }
@@ -121,24 +123,153 @@ function runInParent(code) {
   });
 }
 
-function readStatData() {
-  if (typeof p.Mvu === 'undefined') return null;
 
-  for (let i = -1; i >= -30; i--) {
-    try {
-      const d = p.Mvu.getMvuData({ type: 'message', message_id: i });
-      if (d?.stat_data?.衍生状态?.nationality && d?.stat_data?.世界阶段) return d.stat_data;
-    } catch (e) { break; }
-  }
 
-  let best = null;
-  for (let i = 0; i < 200; i++) {
+
+function ewcResolveRootList() {
+  const seen = new Set();
+  const list = [];
+  const visit = (w) => {
+    if (!w || seen.has(w)) return;
+    try { seen.add(w); } catch (e) { return; }
+    list.push(w);
+    try { if (w.parent && w.parent !== w) visit(w.parent); } catch (e) {}
+    try { if (w.top && w.top !== w && !seen.has(w.top)) visit(w.top); } catch (e) {}
     try {
-      const d = p.Mvu.getMvuData({ type: 'message', message_id: i });
-      if (d?.stat_data?.衍生状态?.nationality && d?.stat_data?.世界阶段) best = d.stat_data;
-    } catch (e) { break; }
+      const d = w.document;
+      const frames = d && d.querySelectorAll && d.querySelectorAll('iframe,frame');
+      if (frames) for (const f of frames) { try { if (f.contentWindow) visit(f.contentWindow); } catch (e) {} }
+    } catch (e) {}
+    try {
+      const fr = w.frames;
+      if (fr) for (let i = 0; i < fr.length; i++) { try { visit(fr[i]); } catch (e) {} }
+    } catch (e) {}
+  };
+  try { visit(p); } catch (e) {}
+  try { visit(window); } catch (e) {}
+  return list;
+}
+
+function ewcGetDbApi() {
+  const roots = ewcResolveRootList();
+  let fallback = null;
+  for (const w of roots) {
+    try {
+      const a = w && w.AutoCardUpdaterAPI;
+      if (a && typeof a.exportTableAsJson === 'function') {
+        if (!fallback) fallback = a;
+        try {
+          const ex = a.exportTableAsJson();
+          if (ex && Object.keys(ex).length && ewcGetSheet(ex, '缄默核心状态表')) return a;
+        } catch (e) {}
+      }
+    } catch (e) {}
   }
-  return best;
+  return fallback;
+}
+function ewcGetSheet(exported, name) {
+  for (const k of Object.keys(exported || {})) {
+    if (k === 'mate') continue;
+    const s = exported[k];
+    if (s && s.name === name) return s;
+  }
+  return null;
+}
+function ewcGetCell(sheet, col, rowIndex = 1) {
+  if (!sheet?.content || sheet.content.length < 2) return undefined;
+  const ci = sheet.content[0].indexOf(col);
+  if (ci < 0 || rowIndex >= sheet.content.length) return undefined;
+  return sheet.content[rowIndex][ci];
+}
+function ewcRowToObj(sheet, row) {
+  if (!sheet?.content?.[0] || !row) return null;
+  const header = sheet.content[0];
+  const obj = {};
+  header.forEach((h, i) => { obj[h] = row[i]; });
+  return obj;
+}
+
+function ewcBuildStatDataFromDb(exported) {
+  const sd = {};
+  try {
+    const sSurvival = ewcGetSheet(exported, '缄默核心状态表');
+    sd.衍生状态        = { nationality: ewcGetCell(sSurvival, '国籍') || '' };
+    sd.世界阶段        = ewcGetCell(sSurvival, '世界阶段') || '秩序期';
+    sd.感染者行为模式  = ewcGetCell(sSurvival, '感染者行为模式') || '狂病型';
+    sd.NPC行为模式     = ewcGetCell(sSurvival, 'NPC行为模式') || '正常型';
+
+    
+    const sHell = ewcGetSheet(exported, '地狱模式只读表');
+    sd.地狱模式 = { 激活: Number(ewcGetCell(sHell, '激活')) === 1 };
+
+    
+    const sSuc = ewcGetSheet(exported, '魅魔契约表');
+    const sucId = ewcGetCell(sSuc, '异能ID');
+    sd.魅魔契约 = {
+      激活: Number(ewcGetCell(sSuc, '激活')) === 1,
+      异能: sucId ? { id: sucId } : null,
+    };
+
+    
+    const sEnv = ewcGetSheet(exported, '环境状态表');
+    const _envTime = ewcGetCell(sEnv, '时间') || '';
+    sd.环境 = { 时间: _envTime, time_weather: _envTime };
+
+    
+    const sNpc = ewcGetSheet(exported, '场景NPC状态表');
+    sd.NPC = {};
+    if (sNpc?.content) {
+      for (let r = 1; r < sNpc.content.length; r++) {
+        const o = ewcRowToObj(sNpc, sNpc.content[r]);
+        if (o && o['姓名']) sd.NPC[o['姓名']] = {};
+      }
+    }
+    
+    const sComp = ewcGetSheet(exported, '队友状态表');
+    sd.队友 = {};
+    if (sComp?.content) {
+      for (let r = 1; r < sComp.content.length; r++) {
+        const o = ewcRowToObj(sComp, sComp.content[r]);
+        if (o && o['姓名']) sd.队友[o['姓名']] = {};
+      }
+    }
+  } catch (e) {
+    console.error('[EWC] 数据库适配失败:', e);
+  }
+  return sd;
+}
+
+
+const EWC_DB_RETRY_DELAY = 500;
+const EWC_DB_RETRY_MAX   = 18;
+let   _ewcDbRetry = 0;
+
+
+async function readStatData() {
+  const api = ewcGetDbApi();
+  if (!api) {
+    
+    return { __notReady: true, reason: 'api' };
+  }
+  try {
+    const exported = api.exportTableAsJson();
+    const sSurvival = ewcGetSheet(exported, '缄默核心状态表');
+    if (!sSurvival) {
+      
+      return { __notReady: true, reason: 'uninitialized' };
+    }
+    if (sSurvival.content.length < 2) {
+      
+      return { __notReady: true, reason: 'empty' };
+    }
+    const sd = ewcBuildStatDataFromDb(exported);
+    if (sd?.衍生状态?.nationality && sd?.世界阶段) return sd;
+    console.warn('[EWC] 数据库未读取到有效 stat_data，重置所有受控条目');
+    return null;
+  } catch (e) {
+    console.error('[EWC] 读取数据库 stat_data 失败:', e);
+    return { __notReady: true, reason: 'error' };
+  }
 }
 
 function collectNpcNames(sd) {
@@ -391,7 +522,7 @@ const MANAGED_ENTRIES = new Set([
   '世界观-无序者-美利坚国净世神殿','世界观-安布雷拉生物',
   '世界观-大毛生活图景','世界观-大毛国爆发前','世界观-势力爆发前',
   '世界观-统一党爆发后','世界观-新布尔什维克党爆发后','世界观-工人钢铁会爆发后',
-  '世界观-黑雪势力','世界观-零度教势力','世界观-电动实验BMPT(彩蛋)', '世界观-空中飞艇','世界观-核爆区域',
+  '世界观-黑雪势力','世界观-零度教势力','世界观-电动实验BMPT(彩蛋)','世界观-空中飞艇','世界观-核爆区域',
   '世界观-法国爆发前','世界观-爆发期的法国','世界观-末世期的法国',
   '世界观-白鹿堡','世界观-鸢尾堡','世界观-铁王冠领','世界观-圣公教会',
   '世界观-混乱骑士团','世界观-自由联合民','世界观-戴高乐号流亡政府',
@@ -400,13 +531,13 @@ const MANAGED_ENTRIES = new Set([
 ]);
 
 const GLOBAL_NPCS = new Set([
-  '暗线主角已定义NPC摘要',      // 蓝灯：全国籍 constant 常亮
-  '角色/约修亚/基础信息',     // 绿灯：全国籍 normal 关键词触发
+  '暗线主角已定义NPC摘要',      
+  '角色/约修亚/基础信息',     
 ]);
 
-// 全局条目中需要保持蓝灯策略的条目——其余全局条目默认 constant（蓝灯）
-const GLOBAL_FORCE_constant = new Set([
-  '暗线主角已定义NPC摘要',
+
+const GLOBAL_FORCE_NORMAL = new Set([
+  '角色/约修亚/基础信息',
 ]);
 
 const MANAGED_PREFIXES = [
@@ -417,7 +548,7 @@ const MANAGED_PREFIXES = [
 
 function isManagedEntry(name) {
   if (MANAGED_ENTRIES.has(name)) return true;
-  if (GLOBAL_NPCS.has(name))    return true;   // 全局 NPC 条目
+  if (GLOBAL_NPCS.has(name))    return true;   
   return MANAGED_PREFIXES.some(pfx => name.startsWith(pfx));
 }
 
@@ -520,13 +651,24 @@ async function autoSwitch() {
     return _runningPromise;
   }
 
-  _runningPromise = (async () => {
-    console.log('[EWC] autoSwitch 触发');
+    _runningPromise = (async () => {
     bubble && bubble.classList.add('running');
     try {
-      if (typeof p.Mvu === 'undefined') throw new Error('Mvu 不可用');
+      const sdRaw = await readStatData();
+      
+      if (sdRaw && sdRaw.__notReady) {
+        if (_ewcDbRetry < EWC_DB_RETRY_MAX) {
+          _ewcDbRetry++;
+          const delay = EWC_DB_RETRY_DELAY;
+          setTimeout(() => autoSwitch(), delay);
+        } else {
+          console.warn('[EWC] 数据库就绪等待超时，本轮放弃应用（保留现有条目）');
+        }
+        return;
+      }
+      _ewcDbRetry = 0;
 
-      const sd = readStatData();
+      const sd = sdRaw;
       if (!sd) {
         console.warn('[EWC] 未找到有效 stat_data，重置所有受控条目');
       }
@@ -541,7 +683,7 @@ async function autoSwitch() {
         l.wbName + ' ▲' + l.enabled.length + ' ▼' + l.disabled.length
       ).join(' | ');
       console.log('[EWC] 完成 changed=' + result.totalChanged + (logSummary ? '  ' + logSummary : ''));
-      // 将使用的世界书名回显到面板（方便用户确认自动检测结果）
+      
       try {
         const wbEl = p.document.getElementById('ewc-wb-name-display');
         if (wbEl && result.wbNames?.[0]) wbEl.textContent = result.wbNames[0];
@@ -591,6 +733,7 @@ function onSecondaryEvent() {
 
 function onCharacterChanged() {
   ewcInvalidateWbNameCache();
+  _ewcDbRetry = 0;
   clearTimeout(_debounceTimer);
   _debounceTimer = setTimeout(autoSwitch, 400);
 }
@@ -615,13 +758,13 @@ const ALL_EVENTS = [...CRITICAL_EVENTS, ...SECONDARY_EVENTS, ...CHARACTER_EVENTS
 
 if (typeof eventOn === 'function') {
   for (const evt of CRITICAL_EVENTS) {
-    try { eventOn(evt, onCriticalEvent); console.log('[EWC] 注册关键事件:', evt); } catch(e) {}
+    try { eventOn(evt, onCriticalEvent); } catch(e) {}
   }
   for (const evt of SECONDARY_EVENTS) {
-    try { eventOn(evt, onSecondaryEvent); console.log('[EWC] 注册次要事件:', evt); } catch(e) {}
+    try { eventOn(evt, onSecondaryEvent); } catch(e) {}
   }
   for (const evt of CHARACTER_EVENTS) {
-    try { eventOn(evt, onCharacterChanged); console.log('[EWC] 注册角色切换事件:', evt); } catch(e) {}
+    try { eventOn(evt, onCharacterChanged); } catch(e) {}
   }
   p._ewcCleanup = function() {
     if (typeof eventOff === 'function') {
@@ -642,9 +785,9 @@ window._ewcCleanupAll = function() {
     p.fetch = p._ewcOrigFetch;
     delete p._ewcOrigFetch;
   }
+  delete p._ewcLoaded;
   delete p._ewcCleanup;
   delete p._ewcLastResult;
-  delete p._ewcLoaded;
 };
 window.addEventListener('pagehide',     window._ewcCleanupAll);
 window.addEventListener('beforeunload', window._ewcCleanupAll);
@@ -753,660 +896,50 @@ function ewcApplyOptimalEjs(statusEl) {
   } catch (e) { ewcShowToast('配置失败: ' + e.message); }
 }
 
-function ewcGetMvuFormRefs() {
-  const g = id => p.document.getElementById(id);
-  return {
-    updateMode:    g('ewc-mvu-update-mode'),
-    modelSource:   g('ewc-mvu-model-source'),
-    customApi:     g('ewc-mvu-custom-api'),
-    extraPanel:    g('ewc-mvu-extra-panel'),
-    jailbreak:     g('ewc-mvu-jailbreak'),
-    respFormat:    g('ewc-mvu-resp-format'),
-    reqMode:       g('ewc-mvu-req-mode'),
-    reqCount:      g('ewc-mvu-req-count'),
-    autoReq:       g('ewc-mvu-auto-req'),
-    apiUrl:        g('ewc-mvu-api-url'),
-    apiKey:        g('ewc-mvu-api-key'),
-    fetchBtn:      g('ewc-mvu-fetch-models'),
-    modelName:     g('ewc-mvu-model-name'),
-    maxTokens:     g('ewc-mvu-max-tokens'),
-    temperature:   g('ewc-mvu-temperature'),
-    freqPenalty:   g('ewc-mvu-freq-penalty'),
-    presPenalty:   g('ewc-mvu-pres-penalty'),
-    topP:          g('ewc-mvu-top-p'),
-    topK:          g('ewc-mvu-top-k'),
-    autoClean:     g('ewc-mvu-auto-clean'),
-    cleanPanel:    g('ewc-mvu-clean-panel'),
-    cleanInterval: g('ewc-mvu-clean-interval'),
-    cleanRecent:   g('ewc-mvu-clean-recent'),
-    cleanTrigger:  g('ewc-mvu-clean-trigger'),
-    compatChecks:  g('ewc-mvu-compat'),
-    advToggle:     g('ewc-mvu-adv-toggle'),
-    advArrow:      g('ewc-mvu-adv-arrow'),
-    advPanel:      g('ewc-mvu-adv-panel'),
-    manualToggle:  g('ewc-mvu-manual-toggle'),
-    manualArrow:   g('ewc-mvu-manual-arrow'),
-    manualPanel:   g('ewc-mvu-manual-panel'),
-    applyBtn:      g('ewc-mvu-apply'),
-    status:        g('ewc-mvu-status'),
-    presetRow:     g('ewc-mvu-preset-row'),
-    presetName:    g('ewc-mvu-preset-name'),
-  };
-}
 
-function ewcBuildCompatChecks(fr) {
-  const cfg = ewcGetMvuCfg();
-  const compat = cfg?.兼容性 || {};
-  fr.compatChecks.innerHTML = Object.keys(compat).map(k =>
-    `<label class="ewc-mvu-check-row"><input type="checkbox" class="ewc-mvu-compat-check" data-key="${k}"${compat[k] ? ' checked' : ''}><span class="ewc-mvu-check-box"></span><span>${k}</span></label>`
-  ).join('');
-}
-
-function ewcGetEwcYH() {
-  if (typeof SillyTavern !== 'undefined') {
-    if (!SillyTavern.extensionSettings._ewcYH) SillyTavern.extensionSettings._ewcYH = {};
-    return SillyTavern.extensionSettings._ewcYH;
-  }
-  return {};
-}
-function ewcBackupToEwcYH() {
-  const cfg = ewcGetMvuCfg(); if (!cfg) return;
-  const bu = ewcGetEwcYH();
-  bu.更新方式 = cfg.更新方式;
-  const em = cfg.额外模型解析配置 || {};
-  bu.破限方案 = em.破限方案;
-  bu.预设名称 = em.预设名称;
-  bu.应答格式 = em.应答格式;
-  bu.请求方式 = em.请求方式;
-  bu.请求次数 = em.请求次数;
-  bu.启用自动请求 = em.启用自动请求;
-  bu.api地址 = em.api地址;
-  bu.密钥 = em.密钥;
-  bu.模型名称 = em.模型名称;
-  bu.模型来源 = em.模型来源;
-  bu.最大回复token数 = em.最大回复token数;
-  bu.温度 = em.温度;
-  bu.频率惩罚 = em.频率惩罚;
-  bu.存在惩罚 = em.存在惩罚;
-  bu.top_p = em.top_p;
-  bu.top_k = em.top_k;
-  const ac = cfg.自动清理变量 || {};
-  bu.自动清理启用 = ac.启用;
-  bu.快照保留间隔 = ac.快照保留间隔;
-  bu.保留变量最近楼层数 = ac.要保留变量的最近楼层数;
-  bu.触发恢复变量最近楼层数 = ac.触发恢复变量的最近楼层数;
-  if (cfg.兼容性) bu.兼容性 = { ...cfg.兼容性 };
-}
-function ewcRestoreFromEwcYH() {
-  const cfg = ewcGetMvuCfg(); const bu = ewcGetEwcYH();
-  if (!cfg || !bu) return;
-  if (!cfg.更新方式 && bu.更新方式) cfg.更新方式 = bu.更新方式;
-  if (!cfg.额外模型解析配置) cfg.额外模型解析配置 = {};
-  const em = cfg.额外模型解析配置;
-  if (!em.破限方案 && bu.破限方案) em.破限方案 = bu.破限方案;
-  if (!em.预设名称 && bu.预设名称) em.预设名称 = bu.预设名称;
-  if (!em.应答格式 && bu.应答格式) em.应答格式 = bu.应答格式;
-  if (!em.请求方式 && bu.请求方式) em.请求方式 = bu.请求方式;
-  if (em.请求次数 === undefined && bu.请求次数 !== undefined) em.请求次数 = bu.请求次数;
-  if (em.启用自动请求 === undefined && bu.启用自动请求 !== undefined) em.启用自动请求 = bu.启用自动请求;
-  if (!em.api地址 && bu.api地址) em.api地址 = bu.api地址;
-  if (!em.密钥 && bu.密钥) em.密钥 = bu.密钥;
-  if (!em.模型名称 && bu.模型名称) em.模型名称 = bu.模型名称;
-  if (!em.模型来源 && bu.模型来源) em.模型来源 = bu.模型来源;
-  if (em.最大回复token数 === undefined && bu.最大回复token数 !== undefined) em.最大回复token数 = bu.最大回复token数;
-  if (em.温度 === undefined && bu.温度 !== undefined) em.温度 = bu.温度;
-  if (em.频率惩罚 === undefined && bu.频率惩罚 !== undefined) em.频率惩罚 = bu.频率惩罚;
-  if (em.存在惩罚 === undefined && bu.存在惩罚 !== undefined) em.存在惩罚 = bu.存在惩罚;
-  if (em.top_p === undefined && bu.top_p !== undefined) em.top_p = bu.top_p;
-  if (em.top_k === undefined && bu.top_k !== undefined) em.top_k = bu.top_k;
-  if (!cfg.自动清理变量) cfg.自动清理变量 = {};
-  const ac = cfg.自动清理变量;
-  if (ac.启用 === undefined && bu.自动清理启用 !== undefined) ac.启用 = bu.自动清理启用;
-  if (ac.快照保留间隔 === undefined && bu.快照保留间隔 !== undefined) ac.快照保留间隔 = bu.快照保留间隔;
-  if (ac.要保留变量的最近楼层数 === undefined && bu.保留变量最近楼层数 !== undefined) ac.要保留变量的最近楼层数 = bu.保留变量最近楼层数;
-  if (ac.触发恢复变量的最近楼层数 === undefined && bu.触发恢复变量最近楼层数 !== undefined) ac.触发恢复变量的最近楼层数 = bu.触发恢复变量最近楼层数;
-  if (!cfg.兼容性) cfg.兼容性 = {};
-  if (bu.兼容性) {
-    for (const [k, v] of Object.entries(bu.兼容性)) {
-      if (cfg.兼容性[k] === undefined) cfg.兼容性[k] = v;
-    }
-  }
-}
-
-function ewcSyncMvuToForm() {
-  const cfg = ewcGetMvuCfg();
-  const bu = ewcGetEwcYH();
-  const fr = ewcGetMvuFormRefs();
-  if (!cfg || !fr.updateMode) return;
-
-  fr.updateMode.value = cfg.更新方式 || bu.更新方式 || '随AI输出';
-  fr.modelSource.value = (cfg.额外模型解析配置?.模型来源) || bu.模型来源 || '与插头相同';
-  const isExtra = cfg.更新方式 === '额外模型解析';
-  fr.extraPanel.style.display = isExtra ? '' : 'none';
-
-  const em = cfg.额外模型解析配置 || {};
-  fr.jailbreak.value = em.破限方案 || bu.破限方案 || '使用内置破限';
-  if (fr.presetRow) fr.presetRow.style.display = (fr.jailbreak.value === '使用其他预设') ? '' : 'none';
-  if (fr.jailbreak.value === '使用其他预设' && fr.presetName) {
-    const _savedPreset = em.预设名称 || bu.预设名称 || '';
-    ewcPopulatePresets(fr, _savedPreset);
-  }
-  fr.respFormat.value = em.应答格式 || bu.应答格式 || '聊天消息';
-  fr.reqMode.value = em.请求方式 || bu.请求方式 || '依次请求，失败后重试';
-  fr.reqCount.value = em.请求次数 ?? bu.请求次数 ?? 1;
-  fr.autoReq.checked = em.启用自动请求 ?? bu.启用自动请求 ?? true;
-  fr.apiUrl.value = em.api地址 || bu.api地址 || '';
-  fr.apiKey.value = em.密钥 || bu.密钥 || '';
-  if (em.模型名称 && ![...fr.modelName.options].some(o => o.value === em.模型名称)) {
-    const opt = p.document.createElement('option');
-    opt.value = opt.textContent = em.模型名称;
-    fr.modelName.appendChild(opt);
-  }
-  if (em.模型名称 || bu.模型名称) fr.modelName.value = em.模型名称 || bu.模型名称;
-  fr.maxTokens.value = em.最大回复token数 ?? bu.最大回复token数 ?? 65535;
-  fr.temperature.value = em.温度 ?? bu.温度 ?? 1;
-  fr.freqPenalty.value = em.频率惩罚 ?? bu.频率惩罚 ?? 0;
-  fr.presPenalty.value = em.存在惩罚 ?? bu.存在惩罚 ?? 0;
-  fr.topP.value = em.top_p ?? bu.top_p ?? 1;
-  fr.topK.value = em.top_k ?? bu.top_k ?? 0;
-
-  const ac = cfg.自动清理变量 || {};
-  fr.autoClean.checked = ac.启用 ?? bu.自动清理启用 ?? false;
-  fr.cleanPanel.style.display = (ac.启用 ?? bu.自动清理启用) ? '' : 'none';
-  fr.cleanInterval.value = ac.快照保留间隔 ?? bu.快照保留间隔 ?? 50;
-  fr.cleanRecent.value = ac.要保留变量的最近楼层数 ?? bu.保留变量最近楼层数 ?? 20;
-  fr.cleanTrigger.value = ac.触发恢复变量的最近楼层数 ?? bu.触发恢复变量最近楼层数 ?? 10;
-
-  // 兼容性：优先 cfg，回退 bu
-  if (!cfg.兼容性 || Object.keys(cfg.兼容性).length === 0) {
-    if (bu.兼容性 && Object.keys(bu.兼容性).length > 0) {
-      cfg.兼容性 = { ...bu.兼容性 };
-    }
-  }
-
-  ewcBuildCompatChecks(fr);
-  ewcRefreshModelSourceVisibility(fr);
-}
-
-function ewcWriteMvuConfig() {
-  const cfg = ewcGetMvuCfg();
-  const fr = ewcGetMvuFormRefs();
-  if (!cfg || !fr.updateMode) return;
-
-  cfg.更新方式 = fr.updateMode.value;
-  cfg.额外模型解析配置 = cfg.额外模型解析配置 || {};
-  const em = cfg.额外模型解析配置;
-  em.模型来源 = fr.modelSource.value;
-  em.破限方案 = fr.jailbreak.value;
-  if (fr.jailbreak.value === '使用其他预设' && fr.presetName) {
-    em.预设名称 = fr.presetName.value;
-
-    if (typeof SillyTavern !== 'undefined') {
-      SillyTavern.extensionSettings._ewcYH = SillyTavern.extensionSettings._ewcYH || {};
-      SillyTavern.extensionSettings._ewcYH.presetName = fr.presetName.value;
-    }
-  } else {
-    delete em.预设名称;
-
-    if (typeof SillyTavern !== 'undefined' && SillyTavern.extensionSettings._ewcYH) {
-      delete SillyTavern.extensionSettings._ewcYH.presetName;
-    }
-  }
-  em.应答格式 = fr.respFormat.value;
-  em.请求方式 = fr.reqMode.value;
-  em.请求次数 = parseInt(fr.reqCount.value) || 1;
-  em.启用自动请求 = fr.autoReq.checked;
-  em.api地址 = fr.apiUrl.value;
-  em.密钥 = fr.apiKey.value;
-  em.模型名称 = fr.modelName.value;
-  em.兼容假流式 = /假流/i.test(fr.modelName.value);
-  em.最大回复token数 = parseInt(fr.maxTokens.value) || 65535;
-  em.温度 = parseFloat(fr.temperature.value) || 1;
-  em.频率惩罚 = parseFloat(fr.freqPenalty.value) || 0;
-  em.存在惩罚 = parseFloat(fr.presPenalty.value) || 0;
-  em.top_p = parseFloat(fr.topP.value) || 1;
-  em.top_k = parseInt(fr.topK.value) || 0;
-
-  cfg.自动清理变量 = cfg.自动清理变量 || {};
-  const ac = cfg.自动清理变量;
-  ac.启用 = fr.autoClean.checked;
-  ac.快照保留间隔 = parseInt(fr.cleanInterval.value) || 50;
-  ac.要保留变量的最近楼层数 = parseInt(fr.cleanRecent.value) || 20;
-  ac.触发恢复变量的最近楼层数 = parseInt(fr.cleanTrigger.value) || 10;
-
-  fr.compatChecks.querySelectorAll('.ewc-mvu-compat-check').forEach(cb => {
-    if (cfg.兼容性) cfg.兼容性[cb.dataset.key] = cb.checked;
-  });
-
-  // 双写到 _ewcYH 持久化备份
-  ewcBackupToEwcYH();
-}
-
-let _ewcMvuSaveTimer = null;
-function ewcOnMvuFieldChange() {
-  ewcWriteMvuConfig();
-  const fr = ewcGetMvuFormRefs();
-  if (fr.status) fr.status.textContent = '已修改，待保存…';
-  clearTimeout(_ewcMvuSaveTimer);
-  _ewcMvuSaveTimer = setTimeout(async () => {
-    try {
-      ewcWriteMvuConfig();
-      ewcBackupToEwcYH();
-      await ewcSaveSettings();
-      // 同步 MVU 原生 DOM（确保 MVU 内部缓存与配置一致）
-      ewcSyncMvuDom().catch(() => {});
-      // 同步预设名称到 MVU 原生「目标预设」select
-      if (fr.presetName && fr.presetName.value && fr.jailbreak && fr.jailbreak.value === '使用其他预设') {
-        ewcSyncMvuNativePreset(fr.presetName.value);
+function ewcRefreshDbStatus() {
+  const el = p.document.getElementById('ewc-db-status');
+  const dot = p.document.getElementById('ewc-db-dot');
+  const yhEl = p.document.getElementById('ewc-yehuo-status');
+  const yhDot = p.document.getElementById('ewc-yehuo-dot');
+  if (!el) return;
+  const alert = !!(bubble && bubble.classList);
+  try {
+    const api = ewcGetDbApi();
+    if (api) {
+      el.textContent = '已就绪（数据库已挂载）';
+      el.style.color = '#4ade80';
+      if (dot) dot.className = 'ewc-dot ok';
+      if (alert) bubble.classList.remove('ewc-db-alert');
+      let yhReady = false;
+      try {
+        const exported = api.exportTableAsJson();
+        yhReady = !!(exported && ewcGetSheet(exported, '缄默核心状态表'));
+      } catch (e) {}
+      if (yhEl) {
+        yhEl.textContent = yhReady ? '已就绪（业火归途表格已挂载）' : '未挂载（请先建档初始化）';
+        yhEl.style.color = yhReady ? '#4ade80' : '#e05555';
       }
-      if (fr.status) fr.status.textContent = '已保存（刷新后MVU生效）';
-    }
-    catch (e) { if (fr.status) fr.status.textContent = '保存失败: ' + e.message; }
-  }, 600);
-}
-
-function ewcRefreshModelSourceVisibility(fr) {
-  if (!fr) fr = ewcGetMvuFormRefs();
-  const isExtra = fr.updateMode?.value === '额外模型解析';
-  const isCustom = fr.modelSource?.value === '自定义';
-  if (fr.customApi) fr.customApi.style.display = (isExtra && isCustom) ? '' : 'none';
-}
-
-function ewcRefreshMvuStatus() {
-  const fr = ewcGetMvuFormRefs();
-  if (!fr.status) return;
-  try {
-    const cfg = ewcGetMvuCfg();
-    if (!cfg) { fr.status.textContent = '无法读取MVU配置（MVU是否已安装？）'; return; }
-    ewcSyncMvuToForm();
-    const mode = cfg.更新方式;
-    const n = cfg.通知 || {};
-    const notifOk = n['MVU框架加载成功'] && n['变量初始化成功'] && n['变量更新出错'] && n['额外模型解析中'];
-    fr.status.innerHTML =
-      (mode === '额外模型解析' ? '🟢' : '🔴') + ' 更新方式: ' + (mode || '未知') + '<br>' +
-      (notifOk ? '🟢' : '🔴') + ' 四项通知: ' + (notifOk ? '全部开启' : '未全部开启');
-  } catch (e) { fr.status.textContent = '读取MVU配置出错'; }
-}
-
-async function ewcApplyOptimalMvu() {
-  try {
-    const cfg = ewcGetMvuCfg();
-    if (!cfg) { ewcShowToast('mvu_settings 不存在，请确认已安装MVU变量框架'); return; }
-    const fr = ewcGetMvuFormRefs();
-
-    cfg.通知 = cfg.通知 || {};
-    cfg.通知['MVU框架加载成功'] = true;
-    cfg.通知['变量初始化成功'] = true;
-    cfg.通知['变量更新出错'] = true;
-    cfg.通知['额外模型解析中'] = true;
-
-    cfg.额外模型解析配置 = cfg.额外模型解析配置 || {};
-    const em = cfg.额外模型解析配置;
-    em.破限方案 = '使用内置破限';
-    em.应答格式 = '聊天消息'; em.请求方式 = '依次请求，失败后重试';
-    em.请求次数 = 1; em.启用自动请求 = true;
-    em.最大回复token数 = 65535; em.温度 = 1;
-    em.频率惩罚 = 0; em.存在惩罚 = 0; em.top_p = 1; em.top_k = 0;
-    em.api地址 = fr.apiUrl?.value || '';
-    em.密钥 = fr.apiKey?.value || '';
-    em.模型名称 = fr.modelName?.value || '';
-    em.兼容假流式 = /假流/i.test(em.模型名称);
-    em.模型来源 = '自定义';
-
-    cfg.自动清理变量 = cfg.自动清理变量 || {};
-    const ac = cfg.自动清理变量;
-    ac.启用 = true;
-    ac.快照保留间隔 = 50;
-    ac.要保留变量的最近楼层数 = 20;
-    ac.触发恢复变量的最近楼层数 = 10;
-
-    cfg.兼容性 = cfg.兼容性 || {};
-    cfg.兼容性['更新到聊天变量'] = true;
-    cfg.兼容性['显示老旧功能'] = false;
-    cfg.兼容性['sandas不视为user消息'] = false;
-    cfg.更新方式 = '额外模型解析';
-
-    ewcBackupToEwcYH();
-    await ewcSaveSettings();
-    ewcSyncMvuToForm();
-    if (fr.status) fr.status.innerHTML = '🟢 更新方式: 额外模型解析<br>🟢 四项通知: 全部开启';
-    ewcShowToast('MVU最优配置已应用，2秒后刷新…');
-    setTimeout(() => { window.parent.location.reload(); }, 2000);
-  } catch (e) {
-    console.error('[EWC] MVU配置失败:', e);
-    ewcShowToast('MVU配置失败: ' + e.message);
-  }
-}
-
-async function ewcFetchModels() {
-  const fr = ewcGetMvuFormRefs();
-  const baseUrl = (fr.apiUrl?.value || '').trim().replace(/\/+$/, '');
-  if (!baseUrl) { ewcShowToast('请先填写API地址'); return; }
-  if (fr.fetchBtn) { fr.fetchBtn.disabled = true; fr.fetchBtn.textContent = '获取中…'; }
-  try {
-    const resp = await fetch(baseUrl + '/models', {
-      headers: { 'Authorization': 'Bearer ' + (fr.apiKey?.value || '') }
-    });
-    if (!resp.ok) throw new Error('HTTP ' + resp.status);
-    const data = await resp.json();
-    const models = data.data || data.models || data;
-    const ids = (Array.isArray(models) ? models : []).map(m => m.id || m.model || (typeof m === 'string' ? m : '')).filter(Boolean);
-    if (ids.length === 0) { ewcShowToast('未获取到模型列表'); return; }
-    if (fr.modelName) {
-      fr.modelName.innerHTML = ids.map(id => `<option value="${id}">${id}</option>`).join('');
-      const preferred = ['gemini-2.5-pro','gemini-3.1-pro','gemini-3.5-flash'];
-      fr.modelName.value = preferred.find(m => ids.includes(m)) || ids[0];
-    }
-    ewcShowToast('已获取 ' + ids.length + ' 个模型，已选推荐模型');
-  } catch (e) {
-    ewcShowToast('获取模型失败: ' + e.message);
-  } finally {
-    if (fr.fetchBtn) { fr.fetchBtn.disabled = false; fr.fetchBtn.textContent = '获取模型'; }
-  }
-}
-
-let _ewcPresetCache = null;
-
-async function ewcLoadPresetList() {
-  if (_ewcPresetCache) return _ewcPresetCache;
-  try {
-    const result = await runInParent(`(async () => {
-
-      const primary = document.querySelector('#settings_preset_openai');
-      if (primary && primary.options && primary.options.length > 0) {
-        const names = [...primary.options]
-          .map(o => (o.textContent || '').trim())
-          .filter(v => v);
-        if (names.length) return names;
+      if (yhDot) yhDot.className = 'ewc-dot ' + (yhReady ? 'ok' : 'err');
+      if (alert) {
+        if (yhReady) bubble.classList.remove('ewc-db-alert');
+        else bubble.classList.add('ewc-db-alert');
       }
-
-      const byAttr = document.querySelector('select[data-preset-manager-for="openai"]');
-      if (byAttr && byAttr.options && byAttr.options.length > 0) {
-        const names = [...byAttr.options]
-          .map(o => (o.textContent || '').trim())
-          .filter(v => v);
-        if (names.length) return names;
-      }
-
-      const tgwui = document.querySelector('#settings_preset_textgenerationwebui');
-      if (tgwui && tgwui.options && tgwui.options.length > 0) {
-        const names = [...tgwui.options]
-          .map(o => (o.textContent || '').trim())
-          .filter(v => v);
-        if (names.length) return names;
-      }
-
-      return [];
-    })()`);
-
-    if (Array.isArray(result) && result.length) {
-      _ewcPresetCache = result;
-      return result;
-    }
-  } catch(e) {
-  }
-  return [];
-}
-
-async function ewcPopulatePresets(fr, selectedValue) {
-  if (!fr || !fr.presetName) return;
-  fr.presetName.innerHTML = '<option value="">– 加载中… –</option>';
-  try {
-    const list = await ewcLoadPresetList();
-    if (!list || !list.length) {
-      fr.presetName.innerHTML = '<option value="">– 未找到预设（请确认已启用额外模型解析）–</option>';
-      return;
-    }
-    fr.presetName.innerHTML = list
-      .map(name => `<option value="${name.replace(/"/g,'&quot;')}">${name}</option>`)
-      .join('');
-
-    if (selectedValue && [...fr.presetName.options].some(o => o.value === selectedValue)) {
-      fr.presetName.value = selectedValue;
-    }
-  } catch(e) {
-    fr.presetName.innerHTML = '<option value="">– 加载失败 –</option>';
-  }
-}
-
-function ewcSyncMvuDom() {
-  return runInParent(`(async () => {
-  var doc = document;
-  var cfg = SillyTavern.getContext().extensionSettings.mvu_settings;
-  if (!cfg) return 'no cfg';
-  var em = cfg.额外模型解析配置 || {};
-  var ac = cfg.自动清理变量 || {};
-  var compat = cfg.兼容性 || {};
-
-  // 工具：原生设值 + 派发事件（兼容React受控组件）
-  function setVal(el, val) {
-    if (!el) return;
-    if (el.type === 'checkbox') {
-      var desc = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'checked');
-      if (desc && desc.set) { desc.set.call(el, !!val); } else { el.checked = !!val; }
-      el.dispatchEvent(new Event('change', { bubbles: true }));
-    } else if (el.tagName === 'SELECT') {
-      el.value = val;
-      el.dispatchEvent(new Event('change', { bubbles: true }));
     } else {
-      var desc = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
-      if (desc && desc.set) { desc.set.call(el, val); } else { el.value = val; }
-      el.dispatchEvent(new Event('input', { bubbles: true }));
-      el.dispatchEvent(new Event('change', { bubbles: true }));
+      el.textContent = '未检测到数据库，请前往插件区安装';
+      el.style.color = '#e05555';
+      if (dot) dot.className = 'ewc-dot err';
+      if (alert) bubble.classList.add('ewc-db-alert');
+      if (yhEl) { yhEl.textContent = '未检测到数据库'; yhEl.style.color = '#e05555'; }
+      if (yhDot) yhDot.className = 'ewc-dot err';
     }
-  }
-
-  // 在MVU section内按label文本找表单元素
-  function findField(labelText) {
-    var sections = doc.querySelectorAll('.mvu-section');
-    for (var i = 0; i < sections.length; i++) {
-      var labels = sections[i].querySelectorAll('label, span, strong');
-      for (var j = 0; j < labels.length; j++) {
-        if (labels[j].textContent.trim() === labelText) {
-          var field = labels[j].closest('.mvu-field') || labels[j].parentElement;
-          return field.querySelector('input, select, textarea');
-        }
-      }
-    }
-    return null;
-  }
-
-  // 找 range+number 组合的number input
-  function findRangeNumber(labelText) {
-    var sections = doc.querySelectorAll('.mvu-section');
-    for (var i = 0; i < sections.length; i++) {
-      var labels = sections[i].querySelectorAll('label, span, strong');
-      for (var j = 0; j < labels.length; j++) {
-        if (labels[j].textContent.trim() === labelText) {
-          var field = labels[j].closest('.mvu-field') || labels[j].parentElement;
-          return field.querySelector('input[type="number"]');
-        }
-      }
-    }
-    return null;
-  }
-
-  // 找到所有details并展开
-  var details = doc.querySelectorAll('.mvu-section details');
-  var savedStates = [];
-  for (var d = 0; d < details.length; d++) { savedStates.push(details[d].open); details[d].open = true; }
-
-  try {
-    // 更新方式
-    var el = findField('更新方式');
-    if (el && cfg.更新方式) setVal(el, cfg.更新方式);
-
-    // 破限方案
-    el = findField('破限方案');
-    if (el && em.破限方案) setVal(el, em.破限方案);
-
-    // 应答格式
-    el = findField('应答格式');
-    if (el && em.应答格式) setVal(el, em.应答格式);
-
-    // 兼容假流式
-    el = findField('兼容假流式');
-    if (el) setVal(el, !!em.兼容假流式);
-
-    // 请求方式
-    el = findField('请求方式');
-    if (el && em.请求方式) setVal(el, em.请求方式);
-
-    // 请求次数
-    el = findRangeNumber('请求次数');
-    if (el && em.请求次数 !== undefined) setVal(el, em.请求次数);
-
-    // 启用自动请求
-    el = findField('启用自动请求');
-    if (el) setVal(el, em.启用自动请求 !== false);
-
-    // API 地址
-    el = findField('API 地址');
-    if (el && em.api地址) setVal(el, em.api地址);
-
-    // API 密钥
-    el = findField('API 密钥');
-    if (el && em.密钥 !== undefined) setVal(el, em.密钥);
-
-    // 模型名称
-    el = findField('模型名称');
-    if (el && em.模型名称) setVal(el, em.模型名称);
-
-    // 模型来源
-    el = findField('模型来源');
-    if (el && em.模型来源) setVal(el, em.模型来源);
-
-    // 最大回复 token
-    el = findField('最大回复 token');
-    if (el && em.最大回复token数 !== undefined) setVal(el, em.最大回复token数);
-
-    // 温度
-    el = findRangeNumber('温度');
-    if (el && em.温度 !== undefined) setVal(el, em.温度);
-
-    // 频率惩罚
-    el = findRangeNumber('频率惩罚');
-    if (el && em.频率惩罚 !== undefined) setVal(el, em.频率惩罚);
-
-    // 存在惩罚
-    el = findRangeNumber('存在惩罚');
-    if (el && em.存在惩罚 !== undefined) setVal(el, em.存在惩罚);
-
-    // Top P
-    el = findRangeNumber('Top P');
-    if (el && em.top_p !== undefined) setVal(el, em.top_p);
-
-    // Top K
-    el = findRangeNumber('Top K');
-    if (el && em.top_k !== undefined) setVal(el, em.top_k);
-
-    // 自动清理变量
-    el = findField('启用自动清理变量') || findField('启用');
-    if (el && ac.启用 !== undefined) setVal(el, !!ac.启用);
-    var snapEl = doc.getElementById('mvu_snapshot_keep_interval');
-    if (snapEl && ac.快照保留间隔 !== undefined) setVal(snapEl, ac.快照保留间隔);
-    var keepEl = doc.getElementById('mvu_keep_recent_floors');
-    if (keepEl && ac.要保留变量的最近楼层数 !== undefined) setVal(keepEl, ac.要保留变量的最近楼层数);
-    var restEl = doc.getElementById('mvu_restore_recent_floors');
-    if (restEl && ac.触发恢复变量的最近楼层数 !== undefined) setVal(restEl, ac.触发恢复变量的最近楼层数);
-
-    // 兼容性
-    var compatKeys = Object.keys(compat);
-    for (var c = 0; c < compatKeys.length; c++) {
-      el = findField(compatKeys[c]);
-      if (el) setVal(el, !!compat[compatKeys[c]]);
-    }
-
-    return 'ok';
-  } finally {
-    // 恢复details折叠状态
-    for (var r = 0; r < details.length; r++) { details[r].open = savedStates[r]; }
-  }
-})()`);
-}
-
-async function ewcSyncMvuNativePreset(presetName) {
-  if (!presetName) return;
-  try {
-    const result = await runInParent(`(async () => {
-      const target = ${JSON.stringify(presetName)};
-
-      const sections = [...document.querySelectorAll('.mvu-section')];
-
-      function findSelectNear(labelText, scope) {
-        const root = scope || document;
-        for (const el of root.querySelectorAll('label, span, div, td, th')) {
-          if (el.textContent.trim() !== labelText) continue;
-
-          let sib = el.nextElementSibling;
-          while (sib) {
-            if (sib.tagName === 'SELECT') return sib;
-            const s = sib.querySelector('select');
-            if (s) return s;
-            sib = sib.nextElementSibling;
-          }
-
-          const parent = el.closest('div,section,form,tr');
-          if (parent && root.contains(parent)) {
-            const s = parent.querySelector('select');
-            if (s) return s;
-          }
-        }
-        return null;
-      }
-
-      const CANDIDATE_SELECTORS = [
-        '#mvu_target_preset',
-        '#mvu-target-preset',
-        'select[data-mvu="target_preset"]',
-        'select[name="mvu_target_preset"]',
-        '.mvu_preset_select',
-        '.mvu-preset-select',
-      ];
-
-      function findSelectByOption(value, scope) {
-        const root = scope || document;
-        for (const sel of root.querySelectorAll('select')) {
-          if ([...sel.options].some(o => o.value === value || o.textContent.trim() === value)) {
-            if (!sel.closest('#ewc-panel')) return sel;
-          }
-        }
-        return null;
-      }
-
-      let sel = null;
-      for (let si = 0; si < sections.length; si++) {
-        sel = findSelectNear('目标预设', sections[si]);
-        if (sel) break;
-      }
-      if (!sel) {
-        for (const s of CANDIDATE_SELECTORS) {
-          sel = document.querySelector(s);
-          if (sel) break;
-        }
-      }
-      if (!sel) {
-        for (let si = 0; si < sections.length; si++) {
-          sel = findSelectByOption(target, sections[si]);
-          if (sel) break;
-        }
-      }
-
-      if (!sel) return { ok: false, reason: '未找到目标预设 select 元素' };
-
-      const opt = [...sel.options].find(o => o.value === target || o.textContent.trim() === target);
-      if (!opt) return { ok: false, reason: '下拉中不含选项: ' + target, options: [...sel.options].map(o=>o.textContent.trim()) };
-
-      sel.value = opt.value;
-      sel.dispatchEvent(new Event('change', { bubbles: true }));
-      return { ok: true, selected: opt.value };
-    })()`);
-
-    if (result && !result.ok) {
-      console.warn('[EWC] 目标预设同步失败:', result.reason, result.options || '');
-    }
-  } catch(e) {
-    console.warn('[EWC] ewcSyncMvuNativePreset 失败:', e.message);
+  } catch (e) {
+    el.textContent = '未检测到数据库，请前往插件区安装';
+    el.style.color = '#e05555';
+    if (dot) dot.className = 'ewc-dot err';
+    if (alert) bubble.classList.add('ewc-db-alert');
+    if (yhEl) { yhEl.textContent = '未检测到数据库'; yhEl.style.color = '#e05555'; }
+    if (yhDot) yhDot.className = 'ewc-dot err';
   }
 }
 
@@ -1415,7 +948,7 @@ const CONFIG_BLACKLIST = ['次','血','特','惠','福','利','鹿','量','plus'
 const CONFIG_URL_WHITELIST = ['siliconflow', 'openrouter', 'ark.cn-beijing.volces', 'ark.cn', 'edgefn', 'qnaigc', 'nvidia', 'baidubce', 'ananbdhdh', 'ai21', 'aimlapi', 'anthropic', 'bigmodel', 'chutes', 'cohere', 'cometapi', 'dashscope', 'deepseek', 'electronhub', 'fireworks', 'gcli.ggchan.dev', 'googleapis', 'groq', 'lingyiwanwu', 'magicv4', 'minimax', 'mistral', 'momotale', 'moonshot', 'moyii', 'nanogpt', 'novita', 'opencode', 'openai', 'api.pioneer.ai', 'perplexity', 'pollinations', 'primavera64', 'stepfun', 'together', 'x.ai', 'z.ai'];
 
 
-const CONFIG_URL_BLACKLIST = ['gemai', 'sta1n', 'chr1', 'iisbo', 'xqiqix', 'chatnewai', 'qingjiu', 'lemonapi', 'novaiapi', 'vectorengine', 'api.gpt.ge', 'sllt', 'beijixingxing', 'qinyan', 'jiemomo', 'meow61', 'aiopus', 'api-666', 'ekan8', 'nova.cervus', 'api.laozhang', 'ashesb', 'ai.sikong', 'agent.aiflow', 'api552', 'nvewvip.preview.tencent-zeabur'];
+const CONFIG_URL_BLACKLIST = ['gemai', 'sta1n', 'chr1', 'iisbo', 'xqiqix', 'chatnewai', 'qingjiu', 'lemonapi', 'novaiapi', 'vectorengine', 'api.gpt.ge', 'sllt', 'beijixingxing', 'qinyan', 'jiemomo', 'meow61', 'aiopus', 'api-666', 'ekan8', 'nova.cervus', 'api.laozhang', 'ashesb', 'ai.sikong', 'agent.aiflow', 'api552', 'nvewvip.preview.tencent-zeabur', 'ai.ttk.homes', 'cwapi', 'api.xixixi.cloud', 'api.goodsupport.top', 'api.lrca.cn', 'bnwum'];
 
 function ewcCheckModelConfig() {
   try {
@@ -1621,6 +1154,7 @@ function ewcGetCurrentSource() {
     if (!ST) return '';
     const cs = ST.chatCompletionSettings || {};
     if (cs.chat_completion_source) return cs.chat_completion_source;
+    
     const fn = ST.getTokenizerModel;
     if (fn) {
       const body = fn.toString();
@@ -1724,16 +1258,19 @@ function ewcEnsurePersistentCode() {
     'cursor:pointer;user-select:none;',
   ].join('');
 
+  
   const label = p.document.createElement('div');
   label.style.cssText = 'font-size:9px;color:rgba(224,85,85,0.55);font-weight:700;letter-spacing:1px;margin-bottom:3px;font-family:inherit;';
   label.textContent = '⚠ 报错提示码';
   el.appendChild(label);
 
+  
   const codeEl = p.document.createElement('div');
   codeEl.id = 'ewc-persistent-code-val';
   codeEl.style.cssText = 'font-size:9px;color:rgba(224,85,85,0.75);word-break:break-all;line-height:1.5;font-family:inherit;';
   el.appendChild(codeEl);
 
+  
   const hint = p.document.createElement('div');
   hint.id = 'ewc-persistent-code-hint';
   hint.style.cssText = 'font-size:8.5px;color:rgba(224,85,85,0.35);margin-top:3px;text-align:right;font-family:inherit;';
@@ -1794,7 +1331,7 @@ function ewcUpdateBackendCode() {
     const ST = (typeof SillyTavern !== 'undefined') ? SillyTavern : null;
     const model = (ST && typeof ST.getChatCompletionModel === 'function') ? (ST.getChatCompletionModel() || '') : '';
     const source = ewcGetCurrentSource();
-    // 插头URL：反代 > 官方映射 > CM profile
+    
     const proxyUrl = ewcGetReverseProxyUrl();
     const plugUrl = proxyUrl || EWC_SOURCE_URL[source] || ewcGetMainApiUrl() || '';
     const localHref = (p && p.location && p.location.href) || '';
@@ -1856,6 +1393,15 @@ CSS.textContent = `
     50%    {border-color:rgba(214,69,65,0.7); box-shadow:0 0 12px 2px rgba(214,69,65,0.15)}
   }
 
+  @keyframes ewc-db-alert {
+    0%,100%{box-shadow:0 4px 20px rgba(0,0,0,0.6),inset 0 1px 0 rgba(255,255,255,0.04),0 0 7px 1px rgba(224,85,85,0.28);}
+    50%    {box-shadow:0 4px 20px rgba(0,0,0,0.6),inset 0 1px 0 rgba(255,255,255,0.04),0 0 15px 4px rgba(224,85,85,0.5);}
+  }
+  #ewc-bubble.ewc-db-alert {
+    border-color:rgba(224,85,85,0.55);
+    animation:ewc-db-alert 1.8s ease-in-out infinite;
+  }
+
   #ewc-bubble {
     position:fixed; top:12vh; left:14px;
     width:44px; height:44px;
@@ -1874,8 +1420,13 @@ CSS.textContent = `
     box-shadow:0 0 20px rgba(212,175,55,0.2),0 6px 24px rgba(0,0,0,0.7);
     transform:translateY(-1px);
   }
-  #ewc-bubble.panel-open { animation:ewc-spin 4s linear infinite; }
-  #ewc-bubble.running { animation:ewc-spin 1.2s linear infinite; }
+  #ewc-bubble.panel-open #ewc-bubble-icon,
+  #ewc-bubble.running   #ewc-bubble-icon {
+    display:inline-block;
+    filter:sepia(1) saturate(10) hue-rotate(10deg);
+    animation:ewc-spin 4s linear infinite;
+  }
+  #ewc-bubble.running #ewc-bubble-icon { animation-duration:1.2s; }
 
   #ewc-panel {
     position:fixed; z-index:999999;
@@ -1992,6 +1543,28 @@ CSS.textContent = `
     background:linear-gradient(90deg,rgba(212,175,55,0.15),transparent);
   }
 
+  .ewc-db-card {
+    display:flex; align-items:center; gap:11px;
+    padding:11px 13px; border-radius:10px;
+    background:linear-gradient(135deg,rgba(74,144,226,0.07),rgba(74,144,226,0.02));
+    border:1px solid rgba(74,144,226,0.18);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,0.03);
+  }
+  .ewc-db-icon {
+    width:36px; height:36px; flex-shrink:0;
+    display:flex; align-items:center; justify-content:center;
+    font-size:17px; border-radius:10px;
+    background:rgba(74,144,226,0.1);
+    border:1px solid rgba(74,144,226,0.22);
+    box-shadow:0 2px 10px rgba(74,144,226,0.12);
+  }
+  .ewc-db-body { display:flex; flex-direction:column; gap:4px; min-width:0; flex:1; }
+  .ewc-db-label {
+    font-size:9px; color:rgba(143,164,188,0.6);
+    letter-spacing:1.6px; text-transform:uppercase; font-weight:700;
+  }
+  .ewc-db-body .ewc-row { margin:0; }
+
   .ewc-btn {
     padding:7px 12px; border-radius:8px;
     border:1px solid rgba(255,255,255,0.1);
@@ -2030,6 +1603,23 @@ CSS.textContent = `
     transform:translateY(-1px);
   }
   .ewc-btn.primary:disabled { opacity:.3; cursor:not-allowed; transform:none; }
+
+  /* ── 魔改版数据库 · 一键最优配置 ── */
+  #ewc-db-optimize { margin-top:10px; }
+  #ewc-db-optimize:disabled { opacity:.92; cursor:wait; }
+  .ewc-btn.primary.loading::before {
+    content:''; display:inline-block;
+    width:12px; height:12px; margin-right:8px; vertical-align:-2px;
+    border:2px solid rgba(232,213,160,0.35); border-top-color:#e8d5a0;
+    border-radius:50%; animation:ewc-spin 0.7s linear infinite;
+  }
+  .ewc-db-optimize-status {
+    margin-top:8px; font-size:10.5px; line-height:1.5;
+    color:rgba(143,164,188,0.55); letter-spacing:0.03em; min-height:15px;
+  }
+  .ewc-db-optimize-status.ok   { color:#4ade80; }
+  .ewc-db-optimize-status.warn { color:#e6a23c; }
+  .ewc-db-optimize-status.err  { color:#e05555; }
 
   .ewc-btn.blue-primary {
     width:100%; display:block; margin-top:6px;
@@ -2157,13 +1747,97 @@ CSS.textContent = `
     .ewc-btn { font-size:11px; }
     #ewc-persistent-code { left:10px; max-width:150px; }
   }
+
+  @keyframes ewc-ft-fadein { from { opacity:0; } to { opacity:1; } }
+  @keyframes ewc-ft-shake {
+    0%,100% { transform: translateX(0); }
+    20%     { transform: translateX(-6px); }
+    40%     { transform: translateX(6px); }
+    60%     { transform: translateX(-4px); }
+    80%     { transform: translateX(4px); }
+  }
+  #ewc-ft-overlay {
+    position: fixed; inset: 0; height: 100%; height: 100dvh;
+    background: rgba(0,0,0,0.82);
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+    z-index: 2147483646;
+    display: flex; align-items: center; justify-content: center;
+    overscroll-behavior: none; touch-action: none;
+    animation: ewc-ft-fadein 0.4s ease;
+  }
+  #ewc-ft-modal {
+    position: relative;
+    width: min(540px, 92vw);
+    max-height: 90vh; max-height: 90dvh;
+    overflow-y: auto; touch-action: pan-y;
+    background:
+      radial-gradient(ellipse at 20% 0%, rgba(212,175,55,0.14) 0%, transparent 60%),
+      linear-gradient(170deg, #15110a 0%, #0d0a06 55%, #0a0805 100%);
+    border: 1px solid rgba(212,175,55,0.32);
+    border-radius: 16px;
+    padding: 30px 30px 26px;
+    box-shadow: 0 12px 48px rgba(0,0,0,0.85), 0 0 80px rgba(212,175,55,0.07) inset;
+    color: #d8c9a8;
+    font-family: 'Noto Serif SC','Microsoft YaHei',sans-serif;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(212,175,55,0.3) transparent;
+  }
+  #ewc-ft-modal::-webkit-scrollbar { width: 4px; }
+  #ewc-ft-modal::-webkit-scrollbar-thumb { background: rgba(212,175,55,0.3); border-radius: 2px; }
+  #ewc-ft-modal.ewc-ft-shake { animation: ewc-ft-shake 0.4s ease; }
+  .ewc-ft-header {
+    display: flex; align-items: center; gap: 15px;
+    margin-bottom: 22px; padding-bottom: 18px;
+    border-bottom: 1px solid rgba(212,175,55,0.18);
+  }
+  .ewc-ft-icon {
+    font-size: 34px; line-height: 1; flex-shrink: 0;
+    filter: drop-shadow(0 0 10px rgba(212,175,55,0.5));
+  }
+  .ewc-ft-title-wrap { display: flex; flex-direction: column; gap: 4px; }
+  .ewc-ft-title {
+    font-size: 22px; font-weight: 700; letter-spacing: 0.12em;
+    color: #e8c878; text-shadow: 0 0 14px rgba(212,175,55,0.4); line-height: 1;
+  }
+  .ewc-ft-subtitle { font-size: 11.5px; letter-spacing: 0.1em; color: rgba(216,201,168,0.4); }
+  .ewc-ft-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 18px; }
+  .ewc-ft-list li { display: flex; align-items: flex-start; gap: 14px; }
+  .ewc-ft-num {
+    flex-shrink: 0; width: 28px; height: 28px; border-radius: 50%;
+    border: 1px solid rgba(212,175,55,0.45); background: rgba(212,175,55,0.08);
+    color: rgba(232,200,120,0.9); font-size: 10px; font-weight: 700; letter-spacing: 0.03em;
+    display: flex; align-items: center; justify-content: center; margin-top: 2px;
+  }
+  .ewc-ft-text { flex: 1; font-size: 13.5px; line-height: 1.8; color: #c9b896; }
+  .ewc-ft-text strong { color: #e8c878; font-weight: 600; }
+  .ewc-ft-closing {
+    margin-top: 20px; padding-top: 18px;
+    border-top: 1px solid rgba(212,175,55,0.12);
+    font-size: 13px; line-height: 1.9; color: rgba(216,201,168,0.55);
+    font-style: italic; letter-spacing: 0.04em; text-align: center;
+  }
+  #ewc-ft-confirm {
+    display: block; width: 100%; margin-top: 22px; padding: 13px 0;
+    background: linear-gradient(135deg, rgba(212,175,55,0.92), rgba(170,135,35,0.96));
+    border: 1px solid rgba(255,225,140,0.5); border-radius: 9px;
+    color: #1a140a; font-size: 14px; font-weight: 700;
+    font-family: inherit; letter-spacing: 0.15em; cursor: pointer;
+    transition: all 0.22s ease;
+    box-shadow: 0 2px 14px rgba(212,175,55,0.28); outline: none;
+  }
+  #ewc-ft-confirm:hover {
+    background: linear-gradient(135deg, rgba(230,195,80,0.98), rgba(190,150,40,1));
+    box-shadow: 0 4px 22px rgba(212,175,55,0.42); transform: translateY(-1px);
+  }
+  #ewc-ft-confirm:active { transform: translateY(0); box-shadow: 0 1px 6px rgba(212,175,55,0.22); }
+  #ewc-ft-overlay.ewc-ft-hiding { opacity: 0; transition: opacity 0.32s ease; }
 `;
 p.document.head.appendChild(CSS);
 
 const bubble = p.document.createElement('button');
 bubble.id = 'ewc-bubble';
 bubble.title = '业火归途 小助手 v' + EWC_VERSION;
-bubble.textContent = '🧬';
+bubble.innerHTML = '<span id="ewc-bubble-icon">🧬</span>';
 p.document.body.appendChild(bubble);
 
 const panel = p.document.createElement('div');
@@ -2205,142 +1879,25 @@ panel.innerHTML = `
       <div id="ewc-ejs-status">检测中…</div>
     </div>
 
-    <!-- MVU 插件配置 -->
+    <!-- 魔改版数据库状态 -->
     <div class="ewc-section">
-      <div class="ewc-section-title">MVU 插件配置</div>
-      <button class="ewc-btn primary" id="ewc-mvu-optimize" style="margin-bottom:8px;">一键最优配置</button>
-
-      <!-- 手动配置手风琴 -->
-      <div class="ewc-mvu-collapse-header" id="ewc-mvu-manual-toggle">
-        <span class="ewc-mvu-collapse-arrow" id="ewc-mvu-manual-arrow">▶</span><span>手动配置</span>
+      <div class="ewc-section-title">魔改版数据库</div>
+      <div class="ewc-db-card">
+        <div class="ewc-db-icon">🗄️</div>
+        <div class="ewc-db-body">
+          <div class="ewc-db-label">数据库环境</div>
+          <div class="ewc-row">
+            <span class="ewc-dot idle" id="ewc-db-dot"></span>
+            <span id="ewc-db-status" style="color:#8899bb;">检测中…</span>
+          </div>
+          <div class="ewc-row">
+            <span class="ewc-dot idle" id="ewc-yehuo-dot"></span>
+            <span id="ewc-yehuo-status" style="color:#8899bb;">检测中…</span>
+          </div>
+        </div>
       </div>
-      <div class="ewc-mvu-body" id="ewc-mvu-manual-panel" style="display:none;">
-
-        <div class="ewc-mvu-row">
-          <label class="ewc-mvu-label">更新方式</label>
-          <select class="ewc-mvu-select" id="ewc-mvu-update-mode">
-            <option value="随AI输出">随AI输出</option>
-            <option value="额外模型解析">额外模型解析</option>
-          </select>
-        </div>
-        <div class="ewc-mvu-row">
-          <label class="ewc-mvu-label">模型来源</label>
-          <select class="ewc-mvu-select" id="ewc-mvu-model-source">
-            <option value="与插头相同">与插头相同</option>
-            <option value="自定义">自定义</option>
-          </select>
-        </div>
-
-        <!-- 自定义 API（仅额外模型解析+自定义时显示） -->
-        <div id="ewc-mvu-custom-api" style="display:none;">
-          <div class="ewc-mvu-subtitle" style="margin-top:6px;">模型连接</div>
-          <div class="ewc-mvu-row">
-            <label class="ewc-mvu-label w">API 地址</label>
-            <input class="ewc-mvu-input" id="ewc-mvu-api-url" placeholder="https://…">
-            <button class="ewc-btn xs" id="ewc-mvu-fetch-models">获取模型</button>
-          </div>
-          <div class="ewc-mvu-row">
-            <label class="ewc-mvu-label w">API 密钥</label>
-            <input class="ewc-mvu-input" id="ewc-mvu-api-key" type="password" placeholder="sk-…">
-          </div>
-          <div class="ewc-mvu-row">
-            <label class="ewc-mvu-label w">模型名称</label>
-            <select class="ewc-mvu-select" id="ewc-mvu-model-name">
-              <option value="">– 请先获取模型 –</option>
-            </select>
-          </div>
-        </div>
-
-        <!-- 额外模型解析专区 -->
-        <div id="ewc-mvu-extra-panel" style="display:none;">
-          <div class="ewc-mvu-subtitle">额外模型解析</div>
-          <div class="ewc-mvu-row">
-            <label class="ewc-mvu-label">破限方案</label>
-            <select class="ewc-mvu-select" id="ewc-mvu-jailbreak">
-              <option value="使用内置破限">使用内置破限</option>
-              <option value="使用当前预设">使用当前预设</option>
-              <option value="使用其他预设">使用其他预设</option>
-            </select>
-          </div>
-          <div class="ewc-mvu-row" id="ewc-mvu-preset-row" style="display:none;">
-            <label class="ewc-mvu-label">选择预设</label>
-            <select class="ewc-mvu-select" id="ewc-mvu-preset-name">
-              <option value="">– 加载中… –</option>
-            </select>
-          </div>
-          <div class="ewc-mvu-row">
-            <label class="ewc-mvu-label">应答格式</label>
-            <select class="ewc-mvu-select" id="ewc-mvu-resp-format">
-              <option value="聊天消息">聊天消息</option>
-              <option value="工具调用">工具调用</option>
-              <option value="格式化输出">格式化输出</option>
-            </select>
-          </div>
-          <div class="ewc-mvu-row">
-            <label class="ewc-mvu-label">请求方式</label>
-            <select class="ewc-mvu-select" id="ewc-mvu-req-mode">
-              <option value="依次请求，失败后重试">依次请求，失败后重试</option>
-              <option value="仅请求一次">仅请求一次</option>
-              <option value="并发请求">并发请求</option>
-            </select>
-          </div>
-          <div class="ewc-mvu-row">
-            <label class="ewc-mvu-label">请求次数</label>
-            <input class="ewc-mvu-input num" id="ewc-mvu-req-count" type="number" min="1" max="10" value="1">
-          </div>
-          <label class="ewc-mvu-check-row">
-            <input type="checkbox" id="ewc-mvu-auto-req" checked>
-            <span class="ewc-mvu-check-box"></span><span>启用自动请求</span>
-          </label>
-          <div class="ewc-mvu-hint">推荐 gemini-2.5-pro / gemini-3.1-pro / gemini-3.5-flash</div>
-
-          <!-- 高级参数手风琴 -->
-          <div class="ewc-mvu-collapse-header" id="ewc-mvu-adv-toggle" style="margin-top:4px;">
-            <span class="ewc-mvu-collapse-arrow" id="ewc-mvu-adv-arrow">▶</span><span>高级参数</span>
-          </div>
-          <div id="ewc-mvu-adv-panel" style="display:none;margin-top:4px;">
-            <div class="ewc-mvu-grid2">
-              <div class="ewc-mvu-row col"><label class="ewc-mvu-label">最大回复 token</label>
-                <input class="ewc-mvu-input num" id="ewc-mvu-max-tokens" type="number" min="1" max="1048576" style="width:100%;" value="65535"></div>
-              <div class="ewc-mvu-row col"><label class="ewc-mvu-label">温度</label>
-                <input class="ewc-mvu-input num" id="ewc-mvu-temperature" type="number" min="0" max="2" step="0.1" style="width:100%;" value="1"></div>
-              <div class="ewc-mvu-row col"><label class="ewc-mvu-label">频率惩罚</label>
-                <input class="ewc-mvu-input num" id="ewc-mvu-freq-penalty" type="number" min="0" max="2" step="0.1" style="width:100%;" value="0"></div>
-              <div class="ewc-mvu-row col"><label class="ewc-mvu-label">存在惩罚</label>
-                <input class="ewc-mvu-input num" id="ewc-mvu-pres-penalty" type="number" min="0" max="2" step="0.1" style="width:100%;" value="0"></div>
-              <div class="ewc-mvu-row col"><label class="ewc-mvu-label">TOP P</label>
-                <input class="ewc-mvu-input num" id="ewc-mvu-top-p" type="number" min="0" max="1" step="0.01" style="width:100%;" value="1"></div>
-              <div class="ewc-mvu-row col"><label class="ewc-mvu-label">TOP K</label>
-                <input class="ewc-mvu-input num" id="ewc-mvu-top-k" type="number" min="0" max="100" style="width:100%;" value="0"></div>
-            </div>
-          </div>
-        </div>
-
-        <!-- 自动清理变量 -->
-        <div class="ewc-mvu-subtitle">自动清理变量</div>
-        <label class="ewc-mvu-check-row">
-          <input type="checkbox" id="ewc-mvu-auto-clean">
-          <span class="ewc-mvu-check-box"></span><span>启用自动清理变量</span>
-        </label>
-        <div id="ewc-mvu-clean-panel" style="display:none;margin-top:4px;">
-          <div class="ewc-mvu-grid2">
-            <div class="ewc-mvu-row col"><label class="ewc-mvu-label">快照间隔</label>
-              <input class="ewc-mvu-input num" id="ewc-mvu-clean-interval" type="number" min="5" max="500" style="width:100%;" value="50"></div>
-            <div class="ewc-mvu-row col"><label class="ewc-mvu-label">保留楼层</label>
-              <input class="ewc-mvu-input num" id="ewc-mvu-clean-recent" type="number" min="1" max="200" style="width:100%;" value="20"></div>
-            <div class="ewc-mvu-row col"><label class="ewc-mvu-label">触发恢复</label>
-              <input class="ewc-mvu-input num" id="ewc-mvu-clean-trigger" type="number" min="1" max="200" style="width:100%;" value="10"></div>
-          </div>
-        </div>
-
-        <!-- 兼容性 -->
-        <div class="ewc-mvu-subtitle">兼容性</div>
-        <div id="ewc-mvu-compat"></div>
-
-        <button class="ewc-btn blue-primary" id="ewc-mvu-apply" style="margin-top:4px;">应用配置（刷新页面）</button>
-      </div><!-- /manual-panel -->
-
-      <div id="ewc-mvu-status">读取中…</div>
+      <button class="ewc-btn primary" id="ewc-db-optimize">一键最优配置</button>
+      <div id="ewc-db-optimize-status" class="ewc-db-optimize-status">按当前数据库状态刷新受控世界书条目</div>
     </div>
 
     <!-- 页脚 -->
@@ -2353,6 +1910,93 @@ panel.innerHTML = `
 `;
 p.document.body.appendChild(panel);
 panel.style.display = 'none';
+
+function ewcIsFirstTime()       { return !localStorage.getItem('ewc_firsttime_shown'); }
+function ewcMarkFirstTimeSeen() { localStorage.setItem('ewc_firsttime_shown', '1'); }
+
+function ewcShowFirstTimeModal() {
+  if (!ewcIsFirstTime()) return;
+  if (p.document.getElementById('ewc-ft-overlay')) return;
+
+  const overlay = p.document.createElement('div');
+  overlay.id = 'ewc-ft-overlay';
+  overlay.innerHTML = `
+    <div id="ewc-ft-modal" role="dialog" aria-modal="true" aria-labelledby="ewc-ft-title-text">
+
+      <div class="ewc-ft-header">
+        <span class="ewc-ft-icon" aria-hidden="true">🔥</span>
+        <div class="ewc-ft-title-wrap">
+          <span class="ewc-ft-title" id="ewc-ft-title-text">业火归途</span>
+          <span class="ewc-ft-subtitle">初次启动 · 游玩前请阅读</span>
+        </div>
+      </div>
+
+      <ul class="ewc-ft-list" aria-label="游玩前注意事项">
+        <li>
+          <span class="ewc-ft-num" aria-hidden="true">01</span>
+          <div class="ewc-ft-text">
+            <strong>本角色卡完全免费。</strong>
+            如有人以「购买会员」「解锁内容」等任何名义向你收费，
+            请前往平台卡区进行举报。
+          </div>
+        </li>
+        <li>
+          <span class="ewc-ft-num" aria-hidden="true">02</span>
+          <div class="ewc-ft-text">
+            请确认已安装并启用以下必要插件：
+            <strong>酒馆助手（JS-Slash-Runner）</strong>、
+            <strong>EJS 提示词模板（ST-Prompt-Template）</strong>、
+            <strong>数据库插件</strong>。
+            同时建议关闭其他前端渲染类插件，避免与本卡冲突。
+          </div>
+        </li>
+        <li>
+          <span class="ewc-ft-num" aria-hidden="true">03</span>
+          <div class="ewc-ft-text">
+            世界书由余烬<strong>全程自动接管</strong>，无需手动开启或关闭任何条目。
+            请放手交给余烬来管理，开局时请尽量避免挂载其他全局世界书。
+          </div>
+        </li>
+        <li>
+          <span class="ewc-ft-num" aria-hidden="true">04</span>
+          <div class="ewc-ft-text">
+            请将世界书的条目排序方式调整为<strong>「自定义」</strong>，
+            然后找到世界书中的<strong>「游玩必看 · 注意事项」</strong>条目，
+            仔细阅读其中说明并完成初始配置，再正式开始游戏。
+          </div>
+        </li>
+      </ul>
+
+      <p class="ewc-ft-closing">
+        一切就绪，余烬正在等待一位新的幸存者。<br>
+        愿你在业火与灰烬之中，找到属于自己的方向。
+      </p>
+
+      <button id="ewc-ft-confirm" type="button">我已了解，进入归途</button>
+    </div>`;
+  p.document.body.appendChild(overlay);
+
+  const confirmBtn = overlay.querySelector('#ewc-ft-confirm');
+  confirmBtn.addEventListener('click', () => {
+    overlay.classList.add('ewc-ft-hiding');
+    setTimeout(() => { overlay.remove(); }, 350);
+    ewcMarkFirstTimeSeen();
+    console.log('[EWC] 首次游玩弹窗已确认，标记写入。');
+  });
+
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) {
+      const modal = overlay.querySelector('#ewc-ft-modal');
+      modal.classList.remove('ewc-ft-shake');
+      void modal.offsetWidth;
+      modal.classList.add('ewc-ft-shake');
+    }
+  });
+
+  console.log('[EWC] 首次游玩弹窗已渲染。');
+}
+
+ewcShowFirstTimeModal();
 
 const statusDot  = p.document.getElementById('ewc-status-dot');
 const statusText = p.document.getElementById('ewc-status-text');
@@ -2404,14 +2048,14 @@ function openPanel() {
   refreshUI();
   ewcCheckModelConfig();
   ewcCheckEjs(ejsStatus);
-  ewcRefreshMvuStatus();
+  ewcRefreshDbStatus();
 }
 
 bubble.addEventListener('click', () => {
   panel.style.display === 'none' ? openPanel() : (panel.style.display = 'none', bubble.classList.remove('panel-open'));
 });
 p.document.getElementById('ewc-close').addEventListener('click', () => { panel.style.display = 'none'; bubble.classList.remove('panel-open'); });
-panel.addEventListener('mouseenter', () => { ewcCheckModelConfig(); ewcCheckEjs(ejsStatus); ewcRefreshMvuStatus(); });
+panel.addEventListener('mouseenter', () => { ewcCheckModelConfig(); ewcCheckEjs(ejsStatus); ewcRefreshDbStatus(); });
 
 p.document.addEventListener('ewc-done', () => { bubble.classList.remove('running'); refreshUI(); });
 
@@ -2419,102 +2063,84 @@ p.document.getElementById('ewc-ejs-optimize').addEventListener('click', () => {
   ewcApplyOptimalEjs(ejsStatus);
 });
 
-p.document.getElementById('ewc-mvu-manual-toggle').addEventListener('click', () => {
-  const mp = p.document.getElementById('ewc-mvu-manual-panel');
-  const ar = p.document.getElementById('ewc-mvu-manual-arrow');
-  const open = mp.style.display !== 'none';
-  mp.style.display = open ? 'none' : '';
-  ar.classList.toggle('open', !open);
-  if (!open) ewcSyncMvuToForm();
-});
-p.document.getElementById('ewc-mvu-adv-toggle').addEventListener('click', () => {
-  const ap = p.document.getElementById('ewc-mvu-adv-panel');
-  const ar = p.document.getElementById('ewc-mvu-adv-arrow');
-  const open = ap.style.display !== 'none';
-  ap.style.display = open ? 'none' : '';
-  ar.classList.toggle('open', !open);
+p.document.getElementById('ewc-db-optimize').addEventListener('click', async (e) => {
+  const btn = e.currentTarget;
+  if (btn.disabled) return;
+  const statusEl = p.document.getElementById('ewc-db-optimize-status');
+  const orig = btn.textContent;
+  const setStatus = (txt, cls) => {
+    if (!statusEl) return;
+    statusEl.textContent = txt;
+    statusEl.className = 'ewc-db-optimize-status' + (cls ? ' ' + cls : '');
+  };
+
+  btn.disabled = true;
+  btn.classList.add('loading');
+  try {
+    try { ewcRefreshDbStatus(); } catch (err) {}
+
+    const api = ewcGetDbApi();
+    if (!api) {
+      setStatus('未检测到数据库，请安装插件并建档初始化（点幸存者前端建档）', 'err');
+      return;
+    }
+
+    const sdRaw = await readStatData();
+    if (sdRaw && sdRaw.__notReady) {
+      let reasonText = '数据库尚未就绪';
+      if (sdRaw.reason === 'uninitialized') reasonText = '业火归途表格未初始化，请先建档';
+      else if (sdRaw.reason === 'empty') reasonText = '业火归途表格为空，请先进行游戏';
+      else if (sdRaw.reason === 'api') reasonText = '未检测到数据库，请先建档初始化';
+      else if (sdRaw.reason === 'error') reasonText = '读取数据库失败，请重试';
+      setStatus(reasonText, 'warn');
+      return;
+    }
+
+    setStatus('正在按当前状态刷新世界书条目…');
+    await ewcRunAutoSwitchAndWait(12000);
+    const last = p._ewcLastResult;
+    if (last && last.log && last.log.length) {
+      const parts = last.log.map(l => l.wbName + ' ▲' + l.enabled.length + ' ▼' + l.disabled.length);
+      setStatus('完成：已按当前状态刷新（' + parts.join(' | ') + '）', 'ok');
+    } else {
+      setStatus('完成：已按当前状态刷新（无变动）', 'ok');
+    }
+  } catch (err) {
+    console.error('[EWC] 一键最优配置失败:', err);
+    setStatus('配置失败：' + err.message, 'err');
+  } finally {
+    btn.classList.remove('loading');
+    btn.disabled = false;
+    btn.textContent = orig;
+    setTimeout(() => {
+      if (!btn.classList.contains('loading')) {
+        setStatus('按当前数据库状态刷新受控世界书条目');
+      }
+    }, 4000);
+  }
 });
 
-const _ewcMvuBindings = [
-  ['ewc-mvu-update-mode',   'change',  () => { const fr=ewcGetMvuFormRefs(); fr.extraPanel.style.display=fr.updateMode.value==='额外模型解析'?'':'none'; ewcRefreshModelSourceVisibility(fr); ewcOnMvuFieldChange(); }],
-  ['ewc-mvu-model-source',  'change',  () => { ewcRefreshModelSourceVisibility(); ewcOnMvuFieldChange(); }],
-  ['ewc-mvu-jailbreak',     'change',  () => {
-    const fr = ewcGetMvuFormRefs();
-    const isOther = fr.jailbreak?.value === '使用其他预设';
-    if (fr.presetRow) fr.presetRow.style.display = isOther ? '' : 'none';
-    if (isOther && fr.presetName) ewcPopulatePresets(fr, fr.presetName.value || '');
-    ewcOnMvuFieldChange();
-  }],
-  ['ewc-mvu-resp-format',   'change',  ewcOnMvuFieldChange],
-  ['ewc-mvu-req-mode',      'change',  ewcOnMvuFieldChange],
-  ['ewc-mvu-req-count',     'input',   ewcOnMvuFieldChange],
-  ['ewc-mvu-auto-req',      'change',  ewcOnMvuFieldChange],
-  ['ewc-mvu-api-url',       'input',   ewcOnMvuFieldChange],
-  ['ewc-mvu-api-key',       'input',   ewcOnMvuFieldChange],
-  ['ewc-mvu-model-name',    'change',  ewcOnMvuFieldChange],
-  ['ewc-mvu-max-tokens',    'input',   ewcOnMvuFieldChange],
-  ['ewc-mvu-temperature',   'input',   ewcOnMvuFieldChange],
-  ['ewc-mvu-freq-penalty',  'input',   ewcOnMvuFieldChange],
-  ['ewc-mvu-pres-penalty',  'input',   ewcOnMvuFieldChange],
-  ['ewc-mvu-top-p',         'input',   ewcOnMvuFieldChange],
-  ['ewc-mvu-top-k',         'input',   ewcOnMvuFieldChange],
-  ['ewc-mvu-auto-clean',    'change',  () => { const fr=ewcGetMvuFormRefs(); fr.cleanPanel.style.display=fr.autoClean.checked?'':'none'; ewcOnMvuFieldChange(); }],
-  ['ewc-mvu-clean-interval','input',   ewcOnMvuFieldChange],
-  ['ewc-mvu-clean-recent',  'input',   ewcOnMvuFieldChange],
-  ['ewc-mvu-clean-trigger', 'input',   ewcOnMvuFieldChange],
-  ['ewc-mvu-fetch-models',  'click',   ewcFetchModels],
-  ['ewc-mvu-preset-name',   'change',  () => { ewcOnMvuFieldChange(); const fr=ewcGetMvuFormRefs(); if(fr.presetName?.value) ewcSyncMvuNativePreset(fr.presetName.value); }],
-];
-for (const [id, evt, fn] of _ewcMvuBindings) {
-  const el = p.document.getElementById(id);
-  if (el) el.addEventListener(evt, fn);
+async function ewcRunAutoSwitchAndWait(timeout = 12000) {
+  return new Promise((resolve) => {
+    let done = false;
+    const handler = (ev) => {
+      if (done) return;
+      done = true;
+      p.document.removeEventListener('ewc-done', handler);
+      resolve(ev.detail);
+    };
+    p.document.addEventListener('ewc-done', handler);
+    _ewcDbRetry = 0;
+    autoSwitch();
+    setTimeout(() => {
+      if (done) return;
+      done = true;
+      p.document.removeEventListener('ewc-done', handler);
+      resolve(p._ewcLastResult || null);
+    }, timeout);
+  });
 }
-p.document.getElementById('ewc-mvu-compat')?.addEventListener('change', e => {
-  if (e.target.classList.contains('ewc-mvu-compat-check')) ewcOnMvuFieldChange();
-});
 
-p.document.getElementById('ewc-mvu-optimize').addEventListener('click', () => {
-  const fr = ewcGetMvuFormRefs();
-  const apiEmpty = !(fr.apiUrl?.value?.trim());
-  if (apiEmpty) {
-
-    const mp = p.document.getElementById('ewc-mvu-manual-panel');
-    const ar = p.document.getElementById('ewc-mvu-manual-arrow');
-    mp.style.display = '';
-    ar.classList.add('open');
-    ewcSyncMvuToForm();
-
-    const fr2 = ewcGetMvuFormRefs();
-    if (fr2.updateMode) fr2.updateMode.value = '额外模型解析';
-    if (fr2.extraPanel) fr2.extraPanel.style.display = '';
-    if (fr2.modelSource) fr2.modelSource.value = '自定义';
-    ewcRefreshModelSourceVisibility(fr2);
-    if (fr2.apiUrl) { fr2.apiUrl.focus(); }
-    ewcShowToast('请填写 API 地址 & 密钥后再点击一键最优配置');
-    if (fr2.status) fr2.status.textContent = '⚠ 请先填写 API 地址并获取模型';
-    return;
-  }
-  ewcApplyOptimalMvu();
-});
-
-p.document.getElementById('ewc-mvu-apply').addEventListener('click', async () => {
-
-  clearTimeout(_ewcMvuSaveTimer);
-  _ewcMvuSaveTimer = null;
-
-  ewcWriteMvuConfig();
-  const statusEl = p.document.getElementById('ewc-mvu-status');
-  if (statusEl) statusEl.textContent = '正在保存配置…';
-  try { await ewcSaveSettings(); } catch(e) {
-    if (statusEl) statusEl.textContent = '保存失败: ' + e.message;
-    return;
-  }
-
-  if (statusEl) statusEl.textContent = '配置已保存，即将刷新…';
-  setTimeout(() => {
-    window.parent.location.reload();
-  }, 1000);
-});
 
 let _bDrag=false, _bSX, _bSY, _bOL, _bOT;
 function _bGetXY(e) {
@@ -2588,10 +2214,11 @@ p.document.addEventListener('touchend', () => { _pDrag=false; });
 
 function waitForMvu(timeout = 15000, interval = 200) {
   return new Promise((resolve, reject) => {
-    if (typeof p.Mvu !== 'undefined') return resolve();
+    
+    if (typeof p.Mvu !== 'undefined' || ewcGetDbApi()) return resolve();
     const start = Date.now();
     const timer = setInterval(() => {
-      if (typeof p.Mvu !== 'undefined') {
+      if (typeof p.Mvu !== 'undefined' || ewcGetDbApi()) {
         clearInterval(timer);
         resolve();
       } else if (Date.now() - start > timeout) {
@@ -2607,23 +2234,8 @@ function waitForMvu(timeout = 15000, interval = 200) {
     try { ewcUpdateBackendCode(); } catch(e) {}
   }
   try {
+    try { ewcRefreshDbStatus(); } catch(e) {}
     await waitForMvu(15000);
-
-    // 从 _ewcYH 恢复被 MVU 初始化抹掉的值
-    ewcRestoreFromEwcYH();
-    // 同步 MVU 原生 DOM，确保内部缓存一致
-    ewcSyncMvuDom().catch(() => {});
-
-    const _savedPreset = (typeof SillyTavern !== 'undefined')
-      ? SillyTavern.extensionSettings?._ewcYH?.presetName
-      : undefined;
-
-    const _emNow = ewcGetMvuCfg()?.额外模型解析配置;
-
-    if (_savedPreset && _emNow && _emNow.破限方案 === '使用其他预设') {
-      _emNow.预设名称 = _savedPreset;
-      await ewcSyncMvuNativePreset(_savedPreset);
-    }
 
     try {
       const wbName = await ewcResolveWorldbookName();
@@ -2635,12 +2247,14 @@ function waitForMvu(timeout = 15000, interval = 200) {
     }
 
     await autoSwitch();
+    try { ewcRefreshDbStatus(); } catch(e) {}
   } catch (e) {
     console.error('[EWC] 启动失败:', e.message);
+    try { ewcRefreshDbStatus(); } catch(e) {}
   }
 })();
 
-setInterval(() => { ewcCheckModelConfig(); ewcUpdateBackendCode(); }, 5000);
+setInterval(() => { ewcCheckModelConfig(); ewcUpdateBackendCode(); ewcRefreshDbStatus(); }, 5000);
 
 (function ewcHookFetch() {
   function ewcMakeFakeCompletion(init) {
@@ -2730,6 +2344,6 @@ setInterval(() => { ewcCheckModelConfig(); ewcUpdateBackendCode(); }, 5000);
   };
 })();
 
-} // end if (!p._ewcLoaded)
+} 
 
 export {};
